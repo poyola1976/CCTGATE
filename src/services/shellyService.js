@@ -107,10 +107,32 @@ export const ShellyService = {
                 isConnected = false;
             }
 
+            // INTENTAR EXTRAER IP (Soporte Gen 1, Gen 2 y Cloud Wrapper)
+            let deviceIp = null;
+
+            // Helper para buscar IP en objeto
+            const findIp = (obj) => {
+                if (!obj) return null;
+                // Gen 1
+                if (obj.wifi_sta && obj.wifi_sta.ip) return obj.wifi_sta.ip;
+                // Gen 2 / Plus
+                if (obj.wifi && obj.wifi.sta_ip) return obj.wifi.sta_ip;
+                if (obj.wifi && obj.wifi.ip) return obj.wifi.ip;
+                // Cloud structure (a veces anidado en device_status)
+                if (obj.device_status) return findIp(obj.device_status);
+                // Estructura Data Wrapper
+                if (obj.data) return findIp(obj.data);
+
+                return null;
+            };
+
+            deviceIp = findIp(data);
+
             return {
                 online: isConnected,
+                ip: deviceIp, // Nueva propiedad
                 error: isConnected ? null : 'Offline/Unknown',
-                data: data // IMPORTANTE: Devolvemos todo para el debug
+                data: data
             };
 
         } catch (e) {
