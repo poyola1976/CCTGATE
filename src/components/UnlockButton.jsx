@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import './UnlockButton.css'; // Crearemos este CSS específico luego si hace falta, o usamos index.css
+import './UnlockButton.css';
 
-export default function UnlockButton({ onUnlock, disabled }) {
+export default function UnlockButton({ onUnlock, disabled, onlineState = 'online' }) {
     const [status, setStatus] = useState('idle'); // idle, loading, success, error
 
+    // Determinar si está deshabilitado visualmente
+    // 'checking' -> deshabilitado pero mostrando spinner pequeño o gris
+    // 'offline' -> deshabilitado totalmente
+    const isInteractive = !disabled && onlineState === 'online';
+
     const handleClick = async () => {
-        if (status === 'loading' || disabled) return;
+        if (status === 'loading' || !isInteractive) return;
 
         // Haptic feedback si está disponible
         if (navigator.vibrate) navigator.vibrate(50);
@@ -27,24 +32,36 @@ export default function UnlockButton({ onUnlock, disabled }) {
         }
     };
 
+    // Texto del botón según estado de conexión
+    const getLabel = () => {
+        if (status === 'loading') return "ABRIENDO...";
+        if (status === 'success') return "ABIERTO";
+        if (status === 'error') return "ERROR";
+
+        if (onlineState === 'checking') return "CONECTANDO...";
+        if (onlineState === 'offline') return "OFFLINE 🔴";
+
+        return "ABRIR PUERTA";
+    };
+
     return (
         <div className="unlock-container">
             <button
-                className={`unlock-btn ${status}`}
+                className={`unlock-btn ${status} ${onlineState}`}
                 onClick={handleClick}
-                disabled={disabled}
+                disabled={!isInteractive}
             >
                 <div className="icon-container">
-                    {status === 'idle' && <span className="material-icon">🔓</span>}
+                    {status === 'idle' && onlineState === 'online' && <span className="material-icon">🔓</span>}
+                    {status === 'idle' && onlineState === 'offline' && <span className="material-icon">🚫</span>}
+                    {status === 'idle' && onlineState === 'checking' && <div className="spinner mini"></div>}
+
                     {status === 'loading' && <div className="spinner"></div>}
                     {status === 'success' && <span className="material-icon">✅</span>}
                     {status === 'error' && <span className="material-icon">❌</span>}
                 </div>
                 <span className="label">
-                    {status === 'idle' && "ABRIR PUERTA"}
-                    {status === 'loading' && "ABRIENDO..."}
-                    {status === 'success' && "ABIERTO"}
-                    {status === 'error' && "ERROR"}
+                    {getLabel()}
                 </span>
             </button>
         </div>

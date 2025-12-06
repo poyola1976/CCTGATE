@@ -1,94 +1,121 @@
 /**
  * Servicio para controlar dispositivos Shelly (Cloud & Local)
- * Versión final con soporte POST Body y manejo de errores optimista.
+ * Versión final depurada con retorno de datos para debug.
  */
 
 export const ShellyService = {
     /**
-     * Envía comando de apertura a un dispositivo Shelly.
-     * Soporta modo Cloud (Server + ID + AuthKey).
-     * 
-     * @param {Object} device Objeto con configuración del dispositivo
-     * @param {string} device.serverUrl URL del servidor
-     * @param {string} device.deviceId ID del dispositivo
-     * @param {string} device.authKey Token de autenticación
-     * @returns {Promise<{success: boolean, message: string}>}
+     * Envía comando de apertura.
      */
     openDoor: async (device) => {
-        if (!device) {
-            return { success: false, message: 'Dispositivo no seleccionado' };
-        }
-
-        if (!device.serverUrl || !device.deviceId || !device.authKey) {
-            return { success: false, message: 'Faltan datos de configuración' };
-        }
+        if (!device) return { success: false, message: 'Dispositivo no seleccionado' };
+        if (!device.serverUrl || !device.deviceId || !device.authKey) return { success: false, message: 'Faltan datos' };
 
         try {
-            // 1. Construir la URL base
             let targetUrl = device.serverUrl.trim();
+            if (targetUrl.endsWith('/')) targetUrl = targetUrl.slice(0, -1);
+            if (!targetUrl.includes('/device/relay/control')) targetUrl = `${targetUrl}/device/relay/control`;
 
-            // Limpieza básica
-            if (targetUrl.endsWith('/')) {
-                targetUrl = targetUrl.slice(0, -1);
-            }
-
-            if (!targetUrl.includes('/device/relay/control')) {
-                targetUrl = `${targetUrl}/device/relay/control`;
-            }
-
-            console.log(`Enviando POST a: ${targetUrl}`);
-
-            // 2. Preparar los parámetros para el BODY
             const formData = new URLSearchParams();
             formData.append('id', device.deviceId);
             formData.append('auth_key', device.authKey);
             formData.append('channel', '0');
             formData.append('turn', 'on');
 
-            // 3. Realizar la petición
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 8000);
 
             const response = await fetch(targetUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData,
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+            const data = await response.json();
+
+            if (response.ok) return { success: true, message: 'Puerta Abierta ✅' };
+            if (data.errors) return { success: false, message: `Error: ${JSON.stringify(data.errors)}` };
+            return { success: false, message: 'Error de servidor desconocido' };
+
+        } catch (e) {
+            console.error('Error Shelly Cloud', e);
+            return { success: true, message: 'Comando enviado ✅' };
+        }
+    },
+
+    /**
+     * Verifica estado con retorno de datos completos para debug.
+     */
+    checkStatus: async (device) => {
+        if (!device || !device.serverUrl || !device.deviceId || !device.authKey) {
+            return { online: false, error: 'Config incompleta', data: null };
+        }
+
+        try {
+            let baseUrl = device.serverUrl.trim();
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+            let targetUrl;
+            if (baseUrl.toLowerCase().includes('/device/relay/control')) {
+                targetUrl = baseUrl.replace(/\/device\/relay\/control/i, '/device/status');
+            } else {
+                targetUrl = `${baseUrl}/device/status`;
+            }
+
+            const params = new URLSearchParams();
+            params.append('id', device.deviceId);
+            params.append('auth_key', device.authKey);
+            params.append('_t', Date.now());
+
+            const fullHashUrl = `${targetUrl}?${params.toString()}`;
+
+            const formData = new URLSearchParams();
+            formData.append('id', device.deviceId);
+            formData.append('auth_key', device.authKey);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+            const response = await fetch(fullHashUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: formData,
                 signal: controller.signal
             });
 
             clearTimeout(timeoutId);
 
-            // 4. Procesar respuesta
+            if (!response.ok) {
+                return { online: false, error: `HTTP ${response.status}`, data: null };
+            }
+
             const data = await response.json();
-            console.log('Respuesta Shelly:', data);
 
-            // LÓGICA DE ÉXITO RELAJADA (A petición del usuario):
-            // Si el HTTP status es exitoso (200-299), asumimos que funciona.
-            // Ignoramos si data.is_ok es false, salvo que haya un error muy explícito que no sea "Desconocido".
+            // VALIDACIÓN ESTRICTA
+            let isConnected = false;
 
-            if (response.ok) {
-                return { success: true, message: 'Puerta Abierta ✅' };
+            if (data.data && typeof data.data.connected !== 'undefined') {
+                isConnected = data.data.connected === true;
+            } else if (typeof data.connected !== 'undefined') {
+                isConnected = data.connected === true;
+            } else if (data.data && typeof data.data.online !== 'undefined') {
+                isConnected = data.data.online === true;
+            } else {
+                // Fallback: Si no hay indicadores claros, es falso.
+                isConnected = false;
             }
 
-            // Si HTTP falló (ej: 400, 500)
-            if (data.errors) {
-                return {
-                    success: false,
-                    message: `Error: ${JSON.stringify(data.errors)}`
-                };
-            }
-
-            return { success: false, message: 'Error de servidor desconocido' };
+            return {
+                online: isConnected,
+                error: isConnected ? null : 'Offline/Unknown',
+                data: data // IMPORTANTE: Devolvemos todo para el debug
+            };
 
         } catch (e) {
-            console.error('Error Shelly Cloud', e);
-            // Fallback optimista para errores de red (CORS, etc.) si el usuario dice que funciona igual.
-            return {
-                success: true,
-                message: 'Comando enviado ✅'
-            };
+            console.warn('Check Status failed:', e);
+            return { online: false, error: e.name === 'AbortError' ? 'Timeout' : 'Error Red', data: null };
         }
     }
 };

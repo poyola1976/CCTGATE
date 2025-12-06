@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import UnlockButton from './components/UnlockButton';
 import ConfigScreen from './components/ConfigScreen';
@@ -10,6 +10,13 @@ function App() {
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
 
+  // Estado de conexión
+  const [connectionState, setConnectionState] = useState('checking');
+  const [offlineReason, setOfflineReason] = useState(null);
+
+  // Refs para loop estable
+  const savedCallback = useRef();
+
   // Cargar dispositivos al iniciar
   useEffect(() => {
     try {
@@ -17,14 +24,13 @@ function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         setDevices(parsed);
-        // Seleccionar el primero por defecto o el último usado
         const lastUsed = localStorage.getItem('shelly_last_active_id');
         if (lastUsed && parsed.find(d => d.id === lastUsed)) {
           setActiveDeviceId(lastUsed);
         } else if (parsed.length > 0) {
           setActiveDeviceId(parsed[0].id);
         } else {
-          setIsConfiguring(true); // Si no hay dispositivos, ir a config
+          setIsConfiguring(true);
         }
       } else {
         setIsConfiguring(true);
@@ -42,12 +48,79 @@ function App() {
     }
   }, [activeDeviceId]);
 
+  // Lógica de Polling encapsulada
+  const performCheck = useCallback(async () => {
+    if (!activeDeviceId || isConfiguring) return;
+
+    const device = devices.find(d => d.id === activeDeviceId);
+    if (!device) return;
+
+    try {
+      // Feedback visual SUTIL: Parpadeo del punto
+      const statusDot = document.querySelector('.status-dot');
+      if (statusDot) {
+        statusDot.style.transition = 'opacity 0.2s';
+        statusDot.style.opacity = '0.3'; // Dim
+      }
+
+      const result = await ShellyService.checkStatus(device);
+
+      if (statusDot) statusDot.style.opacity = '1'; // Restore
+
+      const isOnline = result.online;
+
+      // Actualización de estado inteligente
+      setConnectionState(prev => {
+        if (prev !== (isOnline ? 'online' : 'offline')) {
+          return isOnline ? 'online' : 'offline';
+        }
+        return prev;
+      });
+      setOfflineReason(isOnline ? null : result.error);
+
+    } catch (e) {
+      console.error("Polling error", e);
+    }
+  }, [activeDeviceId, devices, isConfiguring]);
+
+  // Mantener ref actualizado siempre
+  useEffect(() => {
+    savedCallback.current = performCheck;
+  }, [performCheck]);
+
+  // MOTOR DE POLLING (Recursivo & Robusto)
+  useEffect(() => {
+    let timerId;
+    let isActive = true;
+
+    const loop = async () => {
+      if (!isActive) return;
+
+      // Ejecutar check si existe callback válida
+      if (savedCallback.current && !isConfiguring && activeDeviceId) {
+        await savedCallback.current();
+      }
+
+      // Programar siguiente ciclo SOLO cuando termine este (Evita solapamiento)
+      if (isActive) {
+        timerId = setTimeout(loop, 5000); // 5s loop
+      }
+    };
+
+    // Iniciar
+    loop();
+
+    return () => {
+      isActive = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [activeDeviceId, isConfiguring]); // Reinicia loop solo si cambia contexto mayor
+
   const handleSaveDevice = (newDevice) => {
     const updatedDevs = [...devices, newDevice];
     setDevices(updatedDevs);
     localStorage.setItem('shelly_app_devices', JSON.stringify(updatedDevs));
 
-    // Si es el primero, lo seleccionamos y vamos al control
     if (devices.length === 0) {
       setActiveDeviceId(newDevice.id);
       setIsConfiguring(false);
@@ -65,11 +138,13 @@ function App() {
   };
 
   const handleUnlock = async () => {
-    const activeDevice = devices.find(d => d.id === activeDeviceId);
-
-    if (!activeDevice) {
-      return { success: false, message: 'No hay puerta seleccionada' };
+    if (connectionState === 'offline') {
+      const confirmForce = confirm(`Dispositivo sin conexión (${offlineReason || 'Error'}). ¿Intentar forzar?`);
+      if (!confirmForce) return { success: false, message: 'Cancelado' };
     }
+
+    const activeDevice = devices.find(d => d.id === activeDeviceId);
+    if (!activeDevice) return { success: false, message: 'No hay puerta seleccionada' };
 
     const result = await ShellyService.openDoor(activeDevice);
 
@@ -83,19 +158,28 @@ function App() {
     return result;
   };
 
-  const getActiveDevice = () => devices.find(d => d.id === activeDeviceId);
-
   return (
     <div className="app-container">
       <header>
         {!isConfiguring && (
-          <button
-            className="settings-btn"
-            onClick={() => setIsConfiguring(true)}
-            aria-label="Configurar"
-          >
-            ⚙️
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              className={`status-dot ${connectionState}`}
+              title={connectionState === 'offline' ? `Offline: ${offlineReason}` : connectionState}
+              style={{
+                width: '10px', height: '10px', borderRadius: '50%',
+                background: connectionState === 'online' ? '#2ecc71' : (connectionState === 'offline' ? '#e74c3c' : '#f1c40f'),
+                boxShadow: connectionState === 'online' ? '0 0 5px #2ecc71' : 'none'
+              }}
+            />
+            <button
+              className="settings-btn"
+              onClick={() => setIsConfiguring(true)}
+              aria-label="Configurar"
+            >
+              ⚙️
+            </button>
+          </div>
         )}
       </header>
 
@@ -111,7 +195,6 @@ function App() {
           <div className="control-panel">
             <h1>Control Acceso</h1>
 
-            {/* Selector de Dispositivos */}
             {devices.length > 0 ? (
               <div className="device-selector">
                 <select
@@ -122,7 +205,6 @@ function App() {
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
-                {/* ID oculto por privacidad */}
               </div>
             ) : (
               <p className="warn-text">⚠️ Sin configurar</p>
@@ -132,8 +214,15 @@ function App() {
               <UnlockButton
                 onUnlock={handleUnlock}
                 disabled={devices.length === 0}
+                onlineState={connectionState}
               />
             </div>
+
+            {connectionState === 'offline' && (
+              <p style={{ color: '#666', fontSize: '0.8rem', marginTop: '10px' }}>
+                Estado: {offlineReason || 'Sin conexión'}
+              </p>
+            )}
 
             {lastMessage && (
               <div className={`status-toast ${lastMessage.type}`}>
@@ -144,7 +233,6 @@ function App() {
         )}
       </main>
 
-      {/* Estilos inline para el selector por simplicidad */}
       <style>{`
         .device-selector { margin-bottom: 30px; }
         .device-selector select {
@@ -157,14 +245,10 @@ function App() {
           font-weight: bold;
           text-align: center;
           cursor: pointer;
-          -webkit-appearance: none; /* Remover flecha nativa en algunos browsers */
-        }
-        .server-info {
-          font-size: 0.8rem;
-          color: rgba(255,255,255,0.4);
-          margin-top: 5px;
+          -webkit-appearance: none;
         }
         .warn-text { color: orange; font-weight: bold; }
+        .status-dot { transition: all 0.3s ease; }
       `}</style>
     </div>
   );
