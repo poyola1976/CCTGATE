@@ -2,41 +2,64 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import ConfigScreen from './components/ConfigScreen';
 import DoorControl from './components/DoorControl';
+import { FirebaseService } from './services/firebase';
 
 function App() {
   const [devices, setDevices] = useState([]);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
 
-  // Cargar dispositivos al iniciar
+  // Sincronización Realtime con Firebase Cloud
   useEffect(() => {
+    let unsubscribe = () => { };
+
     try {
-      const saved = localStorage.getItem('shelly_app_devices');
-      if (saved) {
-        setDevices(JSON.parse(saved));
-      } else {
-        setIsConfiguring(true);
-      }
+      unsubscribe = FirebaseService.subscribeToDoors((updatedDevices) => {
+        setDevices(updatedDevices);
+        // Si no hay configuración o dispositivos, ir a config
+        if (updatedDevices.length === 0) {
+          setIsConfiguring(true);
+        }
+      });
     } catch (e) {
-      console.error("Error cargando configuración", e);
-      setIsConfiguring(true);
+      console.error("Firebase connection error", e);
     }
+
+    return () => unsubscribe();
   }, []);
 
-  const handleSaveDevice = (newDevice) => {
-    const updatedDevs = [...devices, newDevice];
-    setDevices(updatedDevs);
-    localStorage.setItem('shelly_app_devices', JSON.stringify(updatedDevs));
-
-    if (devices.length === 0) {
-      setIsConfiguring(false);
+  const handleSaveDevice = async (newDevice) => {
+    try {
+      await FirebaseService.addDoor(newDevice);
+      setLastMessage({ type: 'success', text: 'Dispositivo guardado en Nube ☁️' });
+      setTimeout(() => setLastMessage(null), 3000);
+    } catch (error) {
+      console.error("Save error", error);
+      // Mostrar el error real para depuración
+      setLastMessage({ type: 'error', text: `Error: ${error.message}` });
     }
   };
 
-  const handleDeleteDevice = (id) => {
-    const updated = devices.filter(d => d.id !== id);
-    setDevices(updated);
-    localStorage.setItem('shelly_app_devices', JSON.stringify(updated));
+  const handleDeleteDevice = async (id) => {
+    try {
+      await FirebaseService.deleteDoor(id);
+      setLastMessage({ type: 'success', text: 'Dispositivo eliminado' });
+      setTimeout(() => setLastMessage(null), 3000);
+    } catch (error) {
+      setLastMessage({ type: 'error', text: 'Error al eliminar' });
+    }
+  };
+
+  const handleUpdateDevice = async (updatedDevice) => {
+    try {
+      const { id, ...data } = updatedDevice;
+      await FirebaseService.updateDoor(id, data);
+      setLastMessage({ type: 'success', text: 'Dispositivo actualizado' });
+      setTimeout(() => setLastMessage(null), 3000);
+    } catch (error) {
+      console.error("Update error", error);
+      setLastMessage({ type: 'error', text: 'Error al actualizar' });
+    }
   };
 
   // Callback para mostrar mensajes toast globales desde los hijos
@@ -71,6 +94,7 @@ function App() {
           <ConfigScreen
             devices={devices}
             onSaveDevice={handleSaveDevice}
+            onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
             onBack={() => setIsConfiguring(false)}
           />

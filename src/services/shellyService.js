@@ -52,7 +52,7 @@ const enqueueRequest = (requestFn) => {
 
 export const ShellyService = {
     /**
-     * Envía comando de apertura (Encolado).
+     * Envía comando de apertura (Encolado con Prioridad).
      */
     openDoor: async (device) => {
         return enqueueRequest(async () => {
@@ -91,7 +91,7 @@ export const ShellyService = {
                 console.error('Error Shelly Cloud', e);
                 return { success: true, message: 'Comando enviado ✅' }; // Optimistic
             }
-        });
+        }, true); // <--- TRUE = PRIORIDAD ALTA
     },
 
     /**

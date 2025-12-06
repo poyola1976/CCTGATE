@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
-export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, onBack }) {
+export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, onDeleteDevice, onBack }) {
+    const [editingId, setEditingId] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
         serverUrl: 'https://shelly-112-eu.shelly.cloud',
@@ -12,29 +13,54 @@ export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, on
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = (e) => {
+    const handleEditClick = (device) => {
+        setFormData({
+            name: device.name,
+            serverUrl: device.serverUrl,
+            deviceId: device.deviceId,
+            authKey: device.authKey
+        });
+        setEditingId(device.id);
+        // Scroll to form (simple implementation)
+        window.scroll({ top: document.body.scrollHeight, behavior: 'smooth' });
+    };
+
+    const handleCancelEdit = () => {
+        setEditingId(null);
+        setFormData({
+            name: '',
+            serverUrl: 'https://shelly-112-eu.shelly.cloud',
+            deviceId: '',
+            authKey: ''
+        });
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!formData.name || !formData.deviceId || !formData.authKey) {
             alert("Por favor completa todos los campos requeridos");
             return;
         }
 
-        // Crear nuevo dispositivo con ID único
-        // Usamos Date.now() para evitar problemas con crypto.randomUUID en HTTP local
-        const newDevice = {
-            id: Date.now().toString() + Math.floor(Math.random() * 1000),
-            ...formData
-        };
-
-        onSaveDevice(newDevice);
-        // Limpiar formulario (excepto server que suele ser fijo)
-        setFormData(prev => ({ ...prev, name: '', deviceId: '', authKey: '' }));
+        if (editingId) {
+            // ACTUALIZAR
+            await onUpdateDevice({ ...formData, id: editingId });
+            handleCancelEdit(); // Limpiar y salir de modo edición
+        } else {
+            // CREAR
+            // Usamos Date.now() solo como placeholder temporal hasta que Firebase asigne ID real, 
+            // pero como usamos addDoor en App.jsx, el ID lo pone Firebase. 
+            // Aquí pasamos el objeto y App se encarga.
+            await onSaveDevice(formData);
+            // Limpiar formulario se mantiene
+            setFormData(prev => ({ ...prev, name: '', deviceId: '', authKey: '' }));
+        }
     };
 
     return (
         <div className="card config-screen" style={{ textAlign: 'left' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2>Mis Puertas</h2>
+                <h2>Gestión de Puertas</h2>
                 <button onClick={onBack} style={{ padding: '5px 10px', fontSize: '0.9em' }}>Cerrar</button>
             </div>
 
@@ -45,7 +71,8 @@ export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, on
                 ) : (
                     devices.map(dev => (
                         <div key={dev.id} style={{
-                            background: 'rgba(255,255,255,0.05)',
+                            background: editingId === dev.id ? 'rgba(46, 204, 113, 0.1)' : 'rgba(255,255,255,0.05)',
+                            border: editingId === dev.id ? '1px solid #2ecc71' : 'none',
                             padding: '10px',
                             borderRadius: '8px',
                             marginBottom: '8px',
@@ -57,12 +84,20 @@ export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, on
                                 <strong>{dev.name}</strong>
                                 <div style={{ fontSize: '0.7em', color: '#999' }}>ID: {dev.deviceId}</div>
                             </div>
-                            <button
-                                onClick={() => onDeleteDevice(dev.id)}
-                                style={{ background: '#e74c3c33', color: '#e74c3c', border: 'none', padding: '5px 10px' }}
-                            >
-                                Eliminar
-                            </button>
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                                <button
+                                    onClick={() => handleEditClick(dev)}
+                                    style={{ background: '#3498db33', color: '#3498db', border: 'none', padding: '5px 10px' }}
+                                >
+                                    ✏️
+                                </button>
+                                <button
+                                    onClick={() => onDeleteDevice(dev.id)}
+                                    style={{ background: '#e74c3c33', color: '#e74c3c', border: 'none', padding: '5px 10px' }}
+                                >
+                                    🗑️
+                                </button>
+                            </div>
                         </div>
                     ))
                 )}
@@ -70,7 +105,15 @@ export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, on
 
             <hr style={{ borderColor: 'rgba(255,255,255,0.1)', margin: '20px 0' }} />
 
-            <h3>Agregar Nueva Puerta</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3>{editingId ? 'Editar Puerta' : 'Agregar Nueva Puerta'}</h3>
+                {editingId && (
+                    <button onClick={handleCancelEdit} style={{ fontSize: '0.8em', background: 'transparent', border: '1px solid #fff' }}>
+                        Cancelar
+                    </button>
+                )}
+            </div>
+
             <form onSubmit={handleSubmit}>
                 <div className="form-group">
                     <label>Nombre (Ej: Casa)</label>
@@ -89,11 +132,15 @@ export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, on
 
                 <div className="form-group">
                     <label>Auth Key</label>
-                    <input name="authKey" value={formData.authKey} onChange={handleChange} placeholder="Pegar clave larga..." required type="password" />
+                    <input name="authKey" value={formData.authKey} onChange={handleChange} placeholder="Pegar clave larga..." required type={editingId ? "text" : "password"} />
                 </div>
 
-                <button type="submit" style={{ width: '100%', marginTop: '10px', background: 'var(--primary-color)' }}>
-                    Guardar Puerta
+                <button type="submit" style={{
+                    width: '100%',
+                    marginTop: '10px',
+                    background: editingId ? '#f39c12' : 'var(--primary-color)'
+                }}>
+                    {editingId ? 'Actualizar Cambios' : 'Guardar Puerta'}
                 </button>
             </form>
 
