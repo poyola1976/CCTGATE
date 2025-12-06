@@ -3,7 +3,7 @@ import { useState } from 'react';
 export default function ConfigScreen({ devices, onSaveDevice, onDeleteDevice, onBack }) {
     const [formData, setFormData] = useState({
         name: '',
-        serverUrl: 'https://shelly-20-eu.shelly.cloud',
+        serverUrl: 'https://shelly-112-eu.shelly.cloud',
         deviceId: '',
         authKey: ''
     });

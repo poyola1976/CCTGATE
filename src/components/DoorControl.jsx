@@ -13,9 +13,9 @@ export default function DoorControl({ device, onMessage }) {
     // Referencia para el punto de estado (animación)
     const dotRef = useRef(null);
 
-    // Lógica de Chequeo (Una sola ejecución)
+    // Lógica de Chequeo
     const performCheck = useCallback(async () => {
-        if (!device) return { online: false, error: 'No device' };
+        if (!device) return;
 
         try {
             // Feedback visual sutil (Parpadeo)
@@ -24,6 +24,8 @@ export default function DoorControl({ device, onMessage }) {
                 dotRef.current.style.opacity = '0.3';
             }
 
+            // Ya no nos preocupamos por 429 aquí, el servicio tiene una COLA FIFO.
+            // Simplemente esperamos nuestro turno.
             const result = await ShellyService.checkStatus(device);
 
             // Restaurar opacidad
@@ -44,14 +46,11 @@ export default function DoorControl({ device, onMessage }) {
             if (result.ip) {
                 setDeviceIp(result.ip);
             } else if (!isOnline) {
-                setDeviceIp(null); // Limpiar IP si se pierde conexión
+                setDeviceIp(null);
             }
-
-            return result; // Retornar para el loop inteligente
 
         } catch (e) {
             console.error("Polling error for " + device.name, e);
-            return { online: false, error: 'Internal Error' };
         }
     }, [device]);
 
@@ -60,44 +59,30 @@ export default function DoorControl({ device, onMessage }) {
         savedCallback.current = performCheck;
     }, [performCheck]);
 
-    // MOTOR DE POLLING INTELIGENTE (Smart Polling Loop)
+    // MOTOR DE POLLING SIMPLIFICADO (Delegamos el Rate Limit al Servicio)
     useEffect(() => {
         let timerId;
         let isActive = true;
-        let failureCount = 0; // Para Backoff
 
         const loop = async () => {
             if (!isActive) return;
 
-            let currentDelay = 15000; // Base: 15 segundos
-
+            // Ejecutar check (se encolará en el servicio)
             if (savedCallback.current) {
-                const result = await savedCallback.current();
-
-                // Lógica de Backoff (Anti-Colisión)
-                if (result && result.error && result.error.includes('429')) {
-                    failureCount++;
-                    // Exponencial: 15s -> 30s -> 60s (tope)
-                    currentDelay = Math.min(60000, 15000 * Math.pow(2, failureCount));
-                    console.warn(`[${device.name}] 429 Detected. Backoff to ${currentDelay / 1000}s`);
-                } else if (result && result.online) {
-                    // Éxito: Resetear y añadir jitter normal
-                    failureCount = 0;
-                    // Random 0-2s extra
-                    currentDelay = 15000 + (Math.random() * 2000);
-                } else {
-                    // Otro error (offline), mantener ritmo base
-                    failureCount = 0;
-                }
+                await savedCallback.current();
             }
 
+            // Intervalo regular de 15s. 
+            // Si hay mucha cola en el servicio, esta función simplemente se pausará en el 'await' anterior.
+            // Añadimos un pequeño jitter (0-2s) solo para naturalidad.
+            const nextDelay = 15000 + (Math.random() * 2000);
+
             if (isActive) {
-                timerId = setTimeout(loop, currentDelay);
+                timerId = setTimeout(loop, nextDelay);
             }
         };
 
         // Inicio con JITTER (Retraso inicial aleatorio 0-4s)
-        // Esto desincroniza las puertas al arrancar la app
         const initialDelay = Math.random() * 4000;
         timerId = setTimeout(loop, initialDelay);
 
@@ -105,7 +90,7 @@ export default function DoorControl({ device, onMessage }) {
             isActive = false;
             if (timerId) clearTimeout(timerId);
         };
-    }, [device]); // Reiniciar loop solo si cambia el dispositivo base
+    }, [device]);
 
     const handleUnlock = async () => {
         if (connectionState === 'offline') {
@@ -114,9 +99,7 @@ export default function DoorControl({ device, onMessage }) {
         }
 
         const result = await ShellyService.openDoor(device);
-
         if (onMessage) onMessage(result);
-
         return result;
     };
 
