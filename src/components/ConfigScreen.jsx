@@ -6,7 +6,8 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
         name: '',
         serverUrl: 'https://shelly-112-eu.shelly.cloud',
         deviceId: '',
-        authKey: ''
+        authKey: '',
+        allowedEmails: '' // String separado por comas para la UI
     });
 
     const handleChange = (e) => {
@@ -18,7 +19,9 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
             name: device.name,
             serverUrl: device.serverUrl,
             deviceId: device.deviceId,
-            authKey: device.authKey
+            authKey: device.authKey,
+            // Convertir array de DB a string para el input
+            allowedEmails: device.allowedEmails ? device.allowedEmails.join(', ') : ''
         });
         setEditingId(device.id);
         // Scroll to form (simple implementation)
@@ -31,7 +34,8 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
             name: '',
             serverUrl: 'https://shelly-112-eu.shelly.cloud',
             deviceId: '',
-            authKey: ''
+            authKey: '',
+            allowedEmails: ''
         });
     };
 
@@ -42,18 +46,29 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
             return;
         }
 
+        // Procesar emails: String -> Array
+        // 1. Quitar espacios, 2. Split por comas, 3. Filtrar vacíos
+        const emailsArray = formData.allowedEmails
+            ? formData.allowedEmails.split(',').map(e => e.trim()).filter(e => e.length > 0)
+            : [];
+
+        const dataToSave = {
+            name: formData.name,
+            serverUrl: formData.serverUrl,
+            deviceId: formData.deviceId,
+            authKey: formData.authKey,
+            allowedEmails: emailsArray
+        };
+
         if (editingId) {
             // ACTUALIZAR
-            await onUpdateDevice({ ...formData, id: editingId });
+            await onUpdateDevice({ ...dataToSave, id: editingId });
             handleCancelEdit(); // Limpiar y salir de modo edición
         } else {
             // CREAR
-            // Usamos Date.now() solo como placeholder temporal hasta que Firebase asigne ID real, 
-            // pero como usamos addDoor en App.jsx, el ID lo pone Firebase. 
-            // Aquí pasamos el objeto y App se encarga.
-            await onSaveDevice(formData);
+            await onSaveDevice(dataToSave);
             // Limpiar formulario se mantiene
-            setFormData(prev => ({ ...prev, name: '', deviceId: '', authKey: '' }));
+            setFormData(prev => ({ ...prev, name: '', deviceId: '', authKey: '', allowedEmails: '' }));
         }
     };
 
@@ -133,6 +148,20 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
                 <div className="form-group">
                     <label>Auth Key</label>
                     <input name="authKey" value={formData.authKey} onChange={handleChange} placeholder="Pegar clave larga..." required type={editingId ? "text" : "password"} />
+                </div>
+
+                <div className="form-group">
+                    <label>Usuarios Autorizados (Emails)</label>
+                    <input
+                        name="allowedEmails"
+                        value={formData.allowedEmails}
+                        onChange={handleChange}
+                        placeholder="ej: juan@gmail.com, maria@hotmail.com"
+                        style={{ borderColor: '#3498db' }}
+                    />
+                    <small style={{ color: '#888', display: 'block', marginTop: '5px' }}>
+                        Separa los emails con comas. Dejar vacío para uso personal.
+                    </small>
                 </div>
 
                 <button type="submit" style={{
