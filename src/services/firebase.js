@@ -29,7 +29,10 @@ import {
     signInWithEmailAndPassword,
     sendPasswordResetEmail,
     updateProfile,
-    sendEmailVerification
+    sendEmailVerification,
+    updatePassword,
+    reauthenticateWithCredential,
+    EmailAuthProvider
 } from 'firebase/auth';
 
 // --- CONFIGURACIÓN DE FIREBASE (¡REEMPLAZA ESTO!) ---
@@ -211,6 +214,17 @@ export const FirebaseService = {
     sendUserVerification: async (user) => {
         if (!auth) throw new Error("Auth no configurado");
         return await sendEmailVerification(user);
+    },
+
+    reauthenticate: async (user, password) => {
+        if (!auth) throw new Error("Auth no configurado");
+        const credential = EmailAuthProvider.credential(user.email, password);
+        return await reauthenticateWithCredential(user, credential);
+    },
+
+    updateUserPassword: async (user, newPassword) => {
+        if (!auth) throw new Error("Auth no configurado");
+        return await updatePassword(user, newPassword);
     },
 
     logout: async () => {

@@ -3,6 +3,7 @@ import './App.css';
 import ConfigScreen from './components/ConfigScreen';
 import DoorControl from './components/DoorControl';
 import LoginScreen from './components/LoginScreen';
+import UserProfileModal from './components/UserProfileModal'; // Importado
 import { FirebaseService } from './services/firebase';
 import { UserService } from './services/userService';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -15,6 +16,9 @@ function App() {
   const [devices, setDevices] = useState([]);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
+
+  // Estado para el modal de perfil
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   // 1. Gestión de Sesión
   useEffect(() => {
@@ -74,6 +78,7 @@ function App() {
   const handleLogout = async () => {
     await FirebaseService.logout();
     setIsConfiguring(false);
+    setShowProfileModal(false);
   };
 
   // --- ACTIONS (Protegidas por UI, backend rules deben reforzar) ---
@@ -167,10 +172,13 @@ function App() {
         background: 'rgba(0,0,0,0.2)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {user.photoURL && <img src={user.photoURL} alt="User" style={{ width: '32px', borderRadius: '50%' }} />}
+          {user.photoURL ?
+            <img src={user.photoURL} alt="User" style={{ width: '32px', borderRadius: '50%' }} /> :
+            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>👤</div>
+          }
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.2' }}>
             <span style={{ fontSize: '0.9em', fontWeight: 'bold' }}>
-              {user.displayName?.split(' ')[0]}
+              {user.displayName?.split(' ')[0] || user.email.split('@')[0]}
             </span>
             <span style={{ fontSize: '0.7em', color: userRole === 'admin' ? '#f39c12' : '#ccc' }}>
               {userRole === 'admin' ? 'ADMINISTRADOR' : 'Usuario'}
@@ -178,7 +186,7 @@ function App() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           {!isConfiguring && userRole === 'admin' && (
             <button
               className="settings-btn"
@@ -189,6 +197,24 @@ function App() {
               ⚙️
             </button>
           )}
+
+          <button
+            onClick={() => setShowProfileModal(true)}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.3)',
+              fontSize: '0.8em',
+              padding: '5px 10px',
+              borderRadius: '4px',
+              color: '#ddd',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
+          >
+            👤 <span style={{ display: 'none', '@media (min-width: 400px)': { display: 'inline' } }}>Perfil</span>
+          </button>
+
           <button
             onClick={handleLogout}
             style={{
@@ -247,6 +273,12 @@ function App() {
           </div>
         )}
       </main>
+
+      <UserProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={user}
+      />
 
       <style>{`
         .doors-grid {

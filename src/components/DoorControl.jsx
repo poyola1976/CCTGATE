@@ -196,7 +196,7 @@ export default function DoorControl({ device, onMessage }) {
                             <tbody>
                                 {logs.map(log => (
                                     <tr key={log.id} style={{ borderBottom: '1px solid #333' }}>
-                                        <td style={{ padding: '5px' }}>{log.userName || log.userEmail?.split('@')[0]}</td>
+                                        <td style={{ padding: '5px' }}>{log.userEmail || log.userName}</td>
                                         <td style={{ padding: '5px' }}>
                                             {log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}
                                         </td>
