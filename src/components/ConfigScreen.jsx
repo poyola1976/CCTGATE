@@ -103,12 +103,18 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
                                 <button
                                     onClick={() => handleEditClick(dev)}
                                     style={{ background: '#3498db33', color: '#3498db', border: 'none', padding: '5px 10px' }}
+                                    title="Editar"
                                 >
                                     ✏️
                                 </button>
                                 <button
-                                    onClick={() => onDeleteDevice(dev.id)}
+                                    onClick={() => {
+                                        if (window.confirm(`¿Estás seguro de eliminar la puerta "${dev.name}"?`)) {
+                                            onDeleteDevice(dev.id);
+                                        }
+                                    }}
                                     style={{ background: '#e74c3c33', color: '#e74c3c', border: 'none', padding: '5px 10px' }}
+                                    title="Eliminar"
                                 >
                                     🗑️
                                 </button>

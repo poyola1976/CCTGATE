@@ -3,7 +3,8 @@ import './App.css';
 import ConfigScreen from './components/ConfigScreen';
 import DoorControl from './components/DoorControl';
 import LoginScreen from './components/LoginScreen';
-import UserProfileModal from './components/UserProfileModal'; // Importado
+import UserProfileModal from './components/UserProfileModal';
+import AdminUsersScreen from './components/AdminUsersScreen';
 import { FirebaseService } from './services/firebase';
 import { UserService } from './services/userService';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -12,9 +13,15 @@ function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [accessStatus, setAccessStatus] = useState({ allowed: true, message: '' }); // Global fallback
+  const [expirationDate, setExpirationDate] = useState(null);
+  // const [userProfile, setUserProfile] = useState(null); // Perfil completo (REMOVIDO EN REVERT)
+  // const [devicePermissions, setDevicePermissions] = useState({}); // Mapa de permisos por dispositivo (REMOVIDO EN REVERT)
 
   const [devices, setDevices] = useState([]);
-  const [isConfiguring, setIsConfiguring] = useState(false);
+
+  // View State: 'home', 'config', 'users'
+  const [currentView, setCurrentView] = useState('home');
   const [lastMessage, setLastMessage] = useState(null);
 
   // Estado para el modal de perfil
@@ -38,10 +45,33 @@ function App() {
           console.error("Error fetching role", e);
           setUserRole('user'); // Fallback seguro
         }
+
+        // Verificación de Vencimiento (Rango Inicio - Fin)
+        try {
+          const profile = await UserService.getUserProfile(currentUser.uid);
+          const now = new Date();
+          let status = { allowed: true, message: '' };
+
+
+          // Guardamos el perfil para lógica avanzada
+          if (profile?.expirationDate?.seconds) {
+            // Validar que sea un Timestamp de Firestore válido
+            setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
+          } else {
+            setExpirationDate(null);
+          }
+
+          setAccessStatus(status); // Legacy global check (opcional)
+        } catch (e) {
+          console.error("Error checking expiration", e);
+        }
       } else {
         setUser(null);
         setUserRole(null);
+        setAccessStatus({ allowed: true, message: '' });
+        setExpirationDate(null);
       }
+
       setAuthLoading(false);
     });
 
@@ -61,15 +91,22 @@ function App() {
       unsubscribe = FirebaseService.subscribeToDoors((updatedDevices) => {
         setDevices(updatedDevices);
         // NO forzamos ir a config si está vacío, eso es solo para admin
-        if (updatedDevices.length === 0 && userRole === 'admin' && !isConfiguring) {
-          // Opcional: setIsConfiguring(true); 
+        if (updatedDevices.length === 0 && userRole === 'admin' && currentView === 'home') {
+          // Opcional: setCurrentView('config'); 
         }
       }, userRole, user?.email); // <--- Argumentos nuevos
     } catch (e) {
       console.error("Firebase connection error", e);
     }
     return () => unsubscribe();
-  }, [user, userRole]); // Re-sync si cambia usuario
+  }, [user, userRole]);
+
+  // 3. Cálculo de Permisos por Dispositivo (REMOVIDO EN REVERT)
+  /*
+  useEffect(() => {
+    // ... lógica removida ...
+  }, [userProfile, devices, userRole]);
+  */
 
   const handleLogin = async () => {
     await FirebaseService.loginWithGoogle();
@@ -77,7 +114,7 @@ function App() {
 
   const handleLogout = async () => {
     await FirebaseService.logout();
-    setIsConfiguring(false);
+    setCurrentView('home');
     setShowProfileModal(false);
   };
 
@@ -103,6 +140,39 @@ function App() {
     } catch (error) {
       console.error("Update error", error);
       setLastMessage({ type: 'error', text: 'Error al actualizar' });
+    }
+  };
+
+  const checkLicenseStatus = () => {
+    if (!expirationDate) {
+      alert("✅ Licencia Permanente\nTu acceso no tiene fecha de vencimiento.");
+      return;
+    }
+    const now = new Date();
+    if (now > expirationDate) {
+      alert(`🔴 Licencia Vencida\nExpiró el: ${expirationDate.toLocaleDateString()}`);
+    } else {
+      const diffTime = Math.abs(expirationDate - now);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      alert(`📅 Estado de Licencia\nVence el: ${expirationDate.toLocaleDateString()}\nQuedan: ${diffDays} días.`);
+    }
+  };
+
+  const getLicenseColor = () => {
+    if (!expirationDate) return '#2ecc71'; // Verde (Permanente)
+    const now = new Date();
+    if (now > expirationDate) return '#e74c3c'; // Rojo (Vencido)
+
+    // Calcular diferencia en milisegundos de forma explícita
+    const diffTime = expirationDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    console.log(`License Check: ${diffDays} days remaining.`);
+
+    if (diffDays > 10) {
+      return '#2ecc71'; // Verde
+    } else {
+      return '#f1c40f'; // Amarillo
     }
   };
 
@@ -135,6 +205,31 @@ function App() {
 
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  // 2.5 UI Expirado / No Iniciado
+  if (!accessStatus.allowed && userRole !== 'admin') {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', padding: '20px', textAlign: 'center', color: '#fff', background: '#2c3e50'
+      }}>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⌛</div>
+        <h2>Acceso Restringido</h2>
+        <p style={{ color: '#aaa', margin: '20px 0', fontSize: '1.2em' }}>
+          {accessStatus.message}
+        </p>
+        <p style={{ color: '#aaa', marginBottom: '30px' }}>
+          Por favor, contacta al administrador.
+        </p>
+        <button
+          onClick={handleLogout}
+          style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #aaa', color: '#aaa', borderRadius: '6px' }}
+        >
+          Cerrar Sesión
+        </button>
+      </div>
+    );
   }
 
   // 3. UI Bloqueo: Si no es admin y no tiene puertas asignadas
@@ -187,14 +282,46 @@ function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          {!isConfiguring && userRole === 'admin' && (
+          {currentView === 'home' && userRole === 'admin' && (
+            <>
+              <button
+                className="settings-btn"
+                onClick={() => setCurrentView('users')}
+                aria-label="Usuarios"
+                title="Gestión de Usuarios"
+                style={{ fontSize: '1.2rem' }}
+              >
+                👥
+              </button>
+              <button
+                className="settings-btn"
+                onClick={() => setCurrentView('config')}
+                aria-label="Configurar"
+                title="Configurar Puertas"
+              >
+                ⚙️
+              </button>
+            </>
+          )}
+
+          {/* INDICADOR DE LICENCIA */}
+          {userRole !== 'admin' && ( // Solo mostrar a usuarios normales, admins son perpetuos
             <button
-              className="settings-btn"
-              onClick={() => setIsConfiguring(true)}
-              aria-label="Configurar"
-              title="Configurar Puertas"
+              onClick={checkLicenseStatus}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0 5px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              title="Estado de Vigencia"
             >
-              ⚙️
+              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={getLicenseColor()}>
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path d="M21 10h-8.35C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H13l2 2 2-2 2 2 4-4.04L21 10zM7 15c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
+              </svg>
             </button>
           )}
 
@@ -232,14 +359,16 @@ function App() {
       </header>
 
       <main>
-        {isConfiguring && userRole === 'admin' ? (
+        {currentView === 'config' && userRole === 'admin' ? (
           <ConfigScreen
             devices={devices}
             onSaveDevice={handleSaveDevice}
             onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
-            onBack={() => setIsConfiguring(false)}
+            onBack={() => setCurrentView('home')}
           />
+        ) : currentView === 'users' && userRole === 'admin' ? (
+          <AdminUsersScreen devices={devices} onBack={() => setCurrentView('home')} />
         ) : (
           <div className="control-panel">
             <h1 style={{ marginBottom: '20px' }}>Accesos</h1>
@@ -258,7 +387,7 @@ function App() {
               <div style={{ textAlign: 'center', marginTop: '50px' }}>
                 <p className="warn-text">⚠️ Sin puertas configuradas</p>
                 {userRole === 'admin' && (
-                  <button onClick={() => setIsConfiguring(true)} style={{ marginTop: '10px' }}>
+                  <button onClick={() => setCurrentView('config')} style={{ marginTop: '10px' }}>
                     Configurar ahora
                   </button>
                 )}
