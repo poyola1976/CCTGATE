@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, getFirestore, collection, getDocs, updateDoc, deleteDoc, query } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getFirestore, collection, getDocs, updateDoc, deleteDoc, query, where, limit } from 'firebase/firestore';
 
 const COLLECTION_USERS = 'users';
 
@@ -10,6 +10,30 @@ export const UserService = {
      * Obtiene el rol del usuario o lo crea si no existe.
      * Estrategia "Bootstrap": Si la colección users está vacía, el primero es admin.
      */
+    /**
+     * Valida si un email está autorizado para registrarse.
+     * Retorna true (autorizado) o lanza error.
+     */
+    validateWhitelist: async (email) => {
+        const db = getDb();
+        // VERIFICACIÓN DE WHITELIST (Nuevo usuario)
+        const usersSnap = await getDocs(query(collection(db, COLLECTION_USERS), limit(1)));
+        const isFirstUser = usersSnap.empty;
+
+        if (isFirstUser) return 'admin'; // Primer usuario es admin
+
+        // Verificar si está en alguna puerta
+        const doorsRef = collection(db, 'doors');
+        const q = query(doorsRef, where('allowedEmails', 'array-contains', email), limit(1));
+        const doorSnap = await getDocs(q);
+
+        if (doorSnap.empty) {
+            console.warn(`Registro rechazado: ${email} no está en ninguna whitelist.`);
+            throw new Error("UNAUTHORIZED_REGISTRATION");
+        }
+        return 'user';
+    },
+
     getUserRole: async (user) => {
         if (!user) return null;
 
@@ -20,7 +44,8 @@ export const UserService = {
         if (userSnap.exists()) {
             return userSnap.data().role;
         } else {
-            const defaultRole = 'user';
+            // Usar validador centralizado
+            const defaultRole = await UserService.validateWhitelist(user.email);
 
             await setDoc(userRef, {
                 email: user.email,

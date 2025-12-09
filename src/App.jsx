@@ -36,34 +36,41 @@ function App() {
 
     const unsubscribeAuth = onAuthStateChanged(FirebaseService.auth, async (currentUser) => {
       if (currentUser) {
-        setUser(currentUser);
-        // Cargar Rol
+        // NO setear usuario todavía. Validar primero para evitar "flash" de la App y desmontaje de LoginScreen.
+
+        // 1. Cargar Rol (Check Whitelist)
         try {
           const role = await UserService.getUserRole(currentUser);
+
+          // Si pasa la validación, entonces sí actualizamos el estado
           setUserRole(role);
-        } catch (e) {
-          console.error("Error fetching role", e);
-          setUserRole('user'); // Fallback seguro
-        }
+          setUser(currentUser);
 
-        // Verificación de Vencimiento (Rango Inicio - Fin)
-        try {
-          const profile = await UserService.getUserProfile(currentUser.uid);
-          const now = new Date();
-          let status = { allowed: true, message: '' };
-
-
-          // Guardamos el perfil para lógica avanzada
-          if (profile?.expirationDate?.seconds) {
-            // Validar que sea un Timestamp de Firestore válido
-            setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
-          } else {
-            setExpirationDate(null);
+          // 2. Verificación de Vencimiento (Solo si es usuario válido)
+          try {
+            const profile = await UserService.getUserProfile(currentUser.uid);
+            if (profile?.expirationDate?.seconds) {
+              setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
+            } else {
+              setExpirationDate(null);
+            }
+          } catch (e) {
+            console.error("Error checking expiration", e);
           }
 
-          setAccessStatus(status); // Legacy global check (opcional)
         } catch (e) {
-          console.error("Error checking expiration", e);
+          console.error("Error fetching role", e);
+          if (e.message === 'UNAUTHORIZED_REGISTRATION') {
+            console.warn("Usuario no autorizado detectado en App.jsx. Eliminando...");
+            sessionStorage.setItem('auth_error', 'Usuario sin permiso para registrarse. Contactar al administrador.');
+            // Borrar usuario. Esto disparará onAuthStateChanged nuevamente con null.
+            await currentUser.delete().catch(err => console.error("Error deleting unauthorized user", err));
+            // NO seteamos user(currentUser), así que LoginScreen sigue montado (o se remonta con error)
+            return;
+          }
+          // Fallback para otros errores (ej. red) - Permitimos entrar como user básico o manejamos error
+          setUserRole('user');
+          setUser(currentUser);
         }
       } else {
         setUser(null);
