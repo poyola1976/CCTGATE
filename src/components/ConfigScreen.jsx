@@ -46,6 +46,18 @@ export default function ConfigScreen({ devices, onSaveDevice, onUpdateDevice, on
             return;
         }
 
+        // VALIDACIÓN: Verificar ID único
+        const isDuplicate = devices.some(dev => {
+            // Si estamos editando, ignoramos el dispositivo actual
+            if (editingId && dev.id === editingId) return false;
+            return dev.deviceId === formData.deviceId;
+        });
+
+        if (isDuplicate) {
+            alert(`⚠️ Error: El Device ID "${formData.deviceId}" ya está registrado en otra puerta.`);
+            return;
+        }
+
         // Procesar emails: String -> Array
         // 1. Quitar espacios, 2. Split por comas, 3. Filtrar vacíos
         const emailsArray = formData.allowedEmails
