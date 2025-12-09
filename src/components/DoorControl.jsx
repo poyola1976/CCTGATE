@@ -189,13 +189,15 @@ export default function DoorControl({ device, onMessage }) {
                         <table style={{ width: '100%', fontSize: '0.8em', borderCollapse: 'collapse', color: '#ddd' }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid #444', textAlign: 'left' }}>
+                                    <th style={{ padding: '5px', width: '30px' }}>#</th>
                                     <th style={{ padding: '5px' }}>Usuario</th>
                                     <th style={{ padding: '5px' }}>Fecha</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {logs.map(log => (
+                                {logs.map((log, index) => (
                                     <tr key={log.id} style={{ borderBottom: '1px solid #333' }}>
+                                        <td style={{ padding: '5px', color: '#888' }}>{index + 1}</td>
                                         <td style={{ padding: '5px' }}>{log.userEmail || log.userName}</td>
                                         <td style={{ padding: '5px' }}>
                                             {log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}
