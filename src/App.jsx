@@ -387,6 +387,7 @@ function App() {
                     key={device.id}
                     device={device}
                     onMessage={handleChildMessage}
+                    isAdmin={userRole === 'admin'}
                   />
                 ))}
               </div>

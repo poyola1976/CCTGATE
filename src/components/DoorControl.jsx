@@ -1,99 +1,25 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import UnlockButton from './UnlockButton';
 import { ShellyService } from '../services/shellyService';
 import { FirebaseService } from '../services/firebase';
 
-export default function DoorControl({ device, onMessage }) {
-    const [connectionState, setConnectionState] = useState('checking'); // checking, online, offline
-    const [offlineReason, setOfflineReason] = useState(null);
-    const [deviceIp, setDeviceIp] = useState(null);
+export default function DoorControl({ device, onMessage, isAdmin }) {
+    // Modo Enterprise: Leemos el estado directamente del objeto device (que viene de Firestore en tiempo real)
+    // El Backend (Monitor Service) se encarga de actualizar device.status { online, error, ip, lastCheck }
 
-    // Referencia para la lógica del loop
-    const savedCallback = useRef();
+    // Si no hay status reportado aún, asumimos "checking" o desconectado
+    const isOnline = device.status?.online === true;
+    const connectionState = isOnline ? 'online' : 'offline';
+    const offlineReason = device.status?.error || 'Sin señal del Monitor';
 
-    // Referencia para el punto de estado (animación)
+    // IP reportada por el monitor
+    // const deviceIp = device.status?.ip; 
+
+    // Referencia para el punto de estado (animación si quisiéramos, pero ahora es pasivo)
     const dotRef = useRef(null);
 
-    // Lógica de Chequeo
-    const performCheck = useCallback(async () => {
-        if (!device) return;
-
-        try {
-            // Feedback visual sutil (Parpadeo)
-            if (dotRef.current) {
-                dotRef.current.style.transition = 'opacity 0.2s';
-                dotRef.current.style.opacity = '0.3';
-            }
-
-            // Ya no nos preocupamos por 429 aquí, el servicio tiene una COLA FIFO.
-            // Simplemente esperamos nuestro turno.
-            const result = await ShellyService.checkStatus(device);
-
-            // Restaurar opacidad
-            if (dotRef.current) {
-                dotRef.current.style.opacity = '1';
-            }
-
-            const isOnline = result.online;
-
-            // Actualizar estados
-            setConnectionState(prev => {
-                const newState = isOnline ? 'online' : 'offline';
-                return prev !== newState ? newState : prev;
-            });
-            setOfflineReason(isOnline ? null : result.error);
-
-            // Gestionar IP
-            if (result.ip) {
-                setDeviceIp(result.ip);
-            } else if (!isOnline) {
-                setDeviceIp(null);
-            }
-
-        } catch (e) {
-            console.error("Polling error for " + device.name, e);
-        }
-    }, [device]);
-
-    // Mantener la callback fresca
-    useEffect(() => {
-        savedCallback.current = performCheck;
-    }, [performCheck]);
-
-    // MOTOR DE POLLING SIMPLIFICADO (Delegamos el Rate Limit al Servicio)
-    useEffect(() => {
-        let timerId;
-        let isActive = true;
-
-        const loop = async () => {
-            if (!isActive) return;
-
-            // Ejecutar check (se encolará en el servicio)
-            if (savedCallback.current) {
-                await savedCallback.current();
-            }
-
-            // Intervalo regular de 15s. 
-            // Si hay mucha cola en el servicio, esta función simplemente se pausará en el 'await' anterior.
-            // Añadimos un pequeño jitter (0-2s) solo para naturalidad.
-            const nextDelay = 15000 + (Math.random() * 2000);
-
-            if (isActive) {
-                timerId = setTimeout(loop, nextDelay);
-            }
-        };
-
-        // Inicio con JITTER (Retraso inicial aleatorio 0-4s)
-        const initialDelay = Math.random() * 4000;
-        timerId = setTimeout(loop, initialDelay);
-
-        return () => {
-            isActive = false;
-            if (timerId) clearTimeout(timerId);
-        };
-    }, [device]);
-
     const [showLogs, setShowLogs] = useState(false);
+    const [showUsers, setShowUsers] = useState(false);
     const [logs, setLogs] = useState([]);
 
     const handleUnlock = async () => {
@@ -125,6 +51,7 @@ export default function DoorControl({ device, onMessage }) {
 
     const toggleLogs = async () => {
         if (!showLogs) {
+            setShowUsers(false); // Mutually exclusive
             // Cargar logs al abrir
             const history = await FirebaseService.getLogsForDoor(device.id);
             setLogs(history);
@@ -144,7 +71,7 @@ export default function DoorControl({ device, onMessage }) {
                 <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#fff' }}>{device.name}</h2>
                 <div
                     ref={dotRef}
-                    title={connectionState === 'offline' ? `Offline: ${offlineReason}` : connectionState}
+                    title={connectionState === 'offline' ? `Offline: ${offlineReason}` : `Online (Monitor Central)`}
                     style={{ display: 'flex', alignItems: 'center' }}
                 >
                     <WifiStatusIcon state={connectionState} />
@@ -157,61 +84,105 @@ export default function DoorControl({ device, onMessage }) {
             />
 
             <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button
-                    onClick={toggleLogs}
-                    style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#aaa',
-                        cursor: 'pointer',
-                        fontSize: '0.9em',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px'
-                    }}
-                >
-                    📜 {showLogs ? 'Ocultar Historial' : 'Ver Historial'}
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={toggleLogs}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: showLogs ? '#fff' : '#aaa',
+                            cursor: 'pointer',
+                            fontSize: '0.9em',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                        }}
+                    >
+                        📜 {showLogs ? 'Ocultar Historial' : 'Ver Historial'}
+                    </button>
+                    {isAdmin && (
+                        <button
+                            onClick={() => {
+                                if (!showUsers) setShowLogs(false); // Mutually exclusive
+                                setShowUsers(!showUsers);
+                            }}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                color: showUsers ? '#fff' : '#aaa',
+                                cursor: 'pointer',
+                                fontSize: '0.9em',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px'
+                            }}
+                        >
+                            👥 {showUsers ? 'Ocultar Usuarios' : 'Usuarios Autorizados'}
+                        </button>
+                    )}
+                </div>
 
                 {connectionState === 'offline' && (
                     <span style={{ fontSize: '0.7em', color: '#e74c3c' }}>
-                        ⚠️ {offlineReason || 'Sin conexión'}
+                        ⚠️ {offlineReason}
                     </span>
                 )}
             </div>
 
-            {showLogs && (
-                <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                    <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9em', color: '#ccc' }}>Últimos Accesos</h4>
-                    {logs.length === 0 ? (
-                        <p style={{ fontSize: '0.8em', color: '#666' }}>No hay registros recientes.</p>
-                    ) : (
-                        <table style={{ width: '100%', fontSize: '0.8em', borderCollapse: 'collapse', color: '#ddd' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid #444', textAlign: 'left' }}>
-                                    <th style={{ padding: '5px', width: '30px' }}>#</th>
-                                    <th style={{ padding: '5px' }}>Usuario</th>
-                                    <th style={{ padding: '5px' }}>Fecha</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {logs.map((log, index) => (
-                                    <tr key={log.id} style={{ borderBottom: '1px solid #333' }}>
-                                        <td style={{ padding: '5px', color: '#888' }}>{index + 1}</td>
-                                        <td style={{ padding: '5px' }}>{log.userEmail || log.userName}</td>
-                                        <td style={{ padding: '5px' }}>
-                                            {log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}
-                                        </td>
+            {
+                showLogs && (
+                    <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                        <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9em', color: '#ccc' }}>Últimos Accesos</h4>
+                        {logs.length === 0 ? (
+                            <p style={{ fontSize: '0.8em', color: '#666' }}>No hay registros recientes.</p>
+                        ) : (
+                            <table style={{ width: '100%', fontSize: '0.8em', borderCollapse: 'collapse', color: '#ddd' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid #444', textAlign: 'left' }}>
+                                        <th style={{ padding: '5px', width: '30px' }}>#</th>
+                                        <th style={{ padding: '5px' }}>Usuario</th>
+                                        <th style={{ padding: '5px' }}>Fecha</th>
                                     </tr>
+                                </thead>
+                                <tbody>
+                                    {logs.map((log, index) => (
+                                        <tr key={log.id} style={{ borderBottom: '1px solid #333' }}>
+                                            <td style={{ padding: '5px', color: '#888' }}>{index + 1}</td>
+                                            <td style={{ padding: '5px' }}>{log.userEmail || log.userName}</td>
+                                            <td style={{ padding: '5px' }}>
+                                                {log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                )
+            }
+
+            {
+                showUsers && (
+                    <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                        <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9em', color: '#ccc' }}>Usuarios Autorizados</h4>
+                        {(!device.allowedEmails || device.allowedEmails.length === 0) ? (
+                            <p style={{ fontSize: '0.8em', color: '#e74c3c' }}>⚠️ Lista vacía (Nadie asignado)</p>
+                        ) : (
+                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.9em', color: '#ddd' }}>
+                                {device.allowedEmails.map((email, i) => (
+                                    <li key={i} style={{ padding: '5px 0', borderBottom: '1px solid #333' }}>
+                                        <span style={{ color: '#888', marginRight: '5px' }}>{i + 1}.</span> {email}
+                                    </li>
                                 ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-            )}
-        </div>
+                            </ul>
+                        )}
+                    </div>
+                )
+            }
+        </div >
     );
 }
+
 const WifiStatusIcon = ({ state }) => {
     const color = state === 'online' ? '#2ecc71' : (state === 'offline' ? '#e74c3c' : '#f1c40f');
 
