@@ -9,8 +9,12 @@ export default function DoorControl({ device, onMessage, isAdmin }) {
 
     // Si no hay status reportado aún, asumimos "checking" o desconectado
     const isOnline = device.status?.online === true;
-    const connectionState = isOnline ? 'online' : 'offline';
+    let connectionState = isOnline ? 'online' : 'offline';
     const offlineReason = device.status?.error || 'Sin señal del Monitor';
+
+    if (!isOnline && offlineReason && (offlineReason.includes('429') || offlineReason.includes('BUSY'))) {
+        connectionState = 'busy';
+    }
 
     // IP reportada por el monitor
     // const deviceIp = device.status?.ip; 

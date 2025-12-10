@@ -7,8 +7,9 @@ import fs from 'fs';
 dotenv.config();
 
 // --- CONFIGURACIÓN ---
-const POLLING_INTERVAL_MS = 10000; // 10 segundos
+const POLLING_INTERVAL_MS = 30000; // 30 segundos (Rate Limit Friendly)
 const SHELLY_TIMEOUT_MS = 5000;
+const INTER_DEVICE_DELAY_MS = 2000; // 2 segundos entre peticiones
 
 // Inicialización de Firebase
 // NOTA: Se requiere el archivo 'serviceAccountKey.json' en este directorio
@@ -27,6 +28,9 @@ try {
     console.error(error.message);
     process.exit(1);
 }
+
+// Helper de espera
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- LÓGICA DE SHELLY ---
 
@@ -72,6 +76,10 @@ async function checkShellyStatus(door) {
         });
 
         clearTimeout(timeout);
+
+        if (response.status === 429) {
+            return { online: false, error: '⚠️ BUSY (429)' };
+        }
 
         if (!response.ok) {
             return { online: false, error: `HTTP ${response.status}` };
@@ -125,11 +133,16 @@ async function runMonitor() {
 
             console.log(`   > Verificando: ${door.name || doorId}...`);
 
-            // Chequeo individual (Podríamos paralelizar con Promise.all si son muchas, 
-            // pero secuencial es más seguro para evitar rate limits masivos a la misma API Key si hubiera)
+            // Petición a Shelly
             const status = await checkShellyStatus(door);
 
-            const logSymbol = status.online ? '✅' : '🔴';
+            // Pausa entre dispositivos para evitar 429 en ráfaga
+            await delay(INTER_DEVICE_DELAY_MS);
+
+            // Logging amigable
+            let logSymbol = status.online ? '✅' : '🔴';
+            if (status.error && status.error.includes('429')) logSymbol = '🟠';
+
             console.log(`     ${logSymbol} Estado: ${status.online ? 'ONLINE' : 'OFFLINE'} (${status.error || status.ip})`);
 
             // Preparar actualización en Firestore
@@ -156,6 +169,6 @@ async function runMonitor() {
 }
 
 // Arrancar
-console.log("🚀 Door Monitor Service v1.0 Iniciado");
-console.log(`🕒 Intervalo: ${POLLING_INTERVAL_MS / 1000}s`);
+console.log("🚀 Door Monitor Service v1.1 (Rate Limit Optimized) Iniciado");
+console.log(`🕒 Intervalo: ${POLLING_INTERVAL_MS / 1000}s | Delay entre puertas: ${INTER_DEVICE_DELAY_MS}ms`);
 runMonitor();
