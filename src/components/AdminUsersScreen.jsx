@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UserService } from '../services/userService';
+import { FirebaseService } from '../services/firebase';
 
 export default function AdminUsersScreen({ devices, onBack }) {
     const [users, setUsers] = useState([]);
@@ -8,6 +9,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
 
     // Estado para modal de expiración
     const [editingExpirationUser, setEditingExpirationUser] = useState(null);
+    const [editingContextDevice, setEditingContextDevice] = useState(null); // Nuevo: Contexto de dispositivo
     const [tempStart, setTempStart] = useState('');
     const [tempEnd, setTempEnd] = useState('');
 
@@ -28,36 +30,41 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
-    const openExpirationModal = (user) => {
+    /**
+     * Muestra el modal de expiración.
+     * @param {*} user Usuario a editar
+     * @param {*} contextDevice Dispositivo específico (o null para Global)
+     */
+    const openExpirationModal = (user, contextDevice = null) => {
         setEditingExpirationUser(user);
+        setEditingContextDevice(contextDevice);
 
-        // Pre-cargar valores actuales (Globales)
-        if (user.startDate) {
-            setTempStart(new Date(user.startDate.seconds * 1000).toISOString().split('T')[0]);
-        } else {
-            setTempStart(new Date().toISOString().split('T')[0]);
+        let userStart = user.startDate;
+        let userEnd = user.expirationDate;
+
+        // Si hay contexto de dispositivo, buscar regla específica
+        if (contextDevice && user.deviceAccess && user.deviceAccess[contextDevice.id]) {
+            const rule = user.deviceAccess[contextDevice.id];
+            userStart = rule.startDate;
+            userEnd = rule.expirationDate;
         }
 
-        if (user.expirationDate) {
-            setTempEnd(new Date(user.expirationDate.seconds * 1000).toISOString().split('T')[0]);
+        // Pre-cargar valores
+        if (userStart) {
+            setTempStart(new Date(userStart.seconds * 1000).toISOString().split('T')[0]);
+        } else {
+            // Si es regla específica y no existe, dejamo vacio. Si es Global y no existe, hoy.
+            setTempStart('');
+        }
+
+        if (userEnd) {
+            setTempEnd(new Date(userEnd.seconds * 1000).toISOString().split('T')[0]);
         } else {
             setTempEnd('');
         }
     };
 
-    const handleRoleChange = async (uid, newRole) => {
-        if (!confirm(`¿Seguro que quieres cambiar el rol a "${newRole}"?`)) return;
 
-        try {
-            await UserService.updateUserRole(uid, newRole);
-            setMsg({ type: 'success', text: `Rol actualizado a ${newRole}` });
-            loadUsers();
-        } catch (e) {
-            console.error(e);
-            setMsg({ type: 'error', text: 'Error actualizando rol' });
-        }
-        setTimeout(() => setMsg(null), 3000);
-    };
 
     const handleDeleteUser = async (uid, name) => {
         if (!confirm(`¿Estás seguro de ELIMINAR al usuario "${name}"?\nEsta acción es irreversible y borrará sus datos de la App.`)) return;
@@ -89,11 +96,17 @@ export default function AdminUsersScreen({ devices, onBack }) {
                 return;
             }
 
-            // Modo Global siempre
-            await UserService.updateUserExpiration(editingExpirationUser.uid, startDate, endDate);
+            // Guardar (Pasando ID de dispositivo si aplica)
+            await UserService.updateUserExpiration(
+                editingExpirationUser.uid,
+                startDate,
+                endDate,
+                editingContextDevice ? editingContextDevice.id : null
+            );
 
-            setMsg({ type: 'success', text: 'Vigencia actualizada' });
+            setMsg({ type: 'success', text: editingContextDevice ? 'Vigencia Específica Guardada' : 'Vigencia Global Guardada' });
             setEditingExpirationUser(null);
+            setEditingContextDevice(null);
             loadUsers();
         } catch (e) {
             console.error(e);
@@ -102,31 +115,124 @@ export default function AdminUsersScreen({ devices, onBack }) {
     };
 
     // --- LÓGICA DE AGRUPACIÓN ---
+    // --- LÓGICA DE AGRUPACIÓN ---
     const admins = users.filter(u => u.role === 'admin');
 
     const deviceGroups = devices.map(device => {
-        const allowedEmails = device.allowedEmails || [];
-        const deviceUsers = users.filter(u => u.role !== 'admin' && allowedEmails.includes(u.email));
-        return { device, users: deviceUsers };
+        // Robustez: Separar por comas/espacios/puntos y coma y limpiar
+        const allowedEmails = (device.allowedEmails || [])
+            .flatMap(e => e.split(/[,;\s]+/))
+            .map(e => e.toLowerCase().trim())
+            .filter(e => e.length > 0 && e.includes('@'));
+
+        // 1. Usuarios Registrados que están en la lista
+        const registeredUsers = users.filter(u => {
+            if (u.role === 'admin') return false;
+            const userEmail = (u.email || '').toLowerCase().trim();
+            return allowedEmails.includes(userEmail);
+        });
+
+        // 2. Emails en lista blanca pero NO en base de datos (Pendientes)
+        const registeredEmails = users.map(u => (u.email || '').toLowerCase().trim());
+        const pendingEmails = allowedEmails.filter(e => !registeredEmails.includes(e));
+
+        const pendingUsers = pendingEmails.map(email => ({
+            uid: `pending-${email}-${device.id}`,
+            email: email,
+            displayName: 'Usuario Pendiente',
+            role: 'pending',
+            isPending: true
+        }));
+
+        // Combinar
+        return { device, users: [...registeredUsers, ...pendingUsers] };
     });
 
     const unassignedUsers = users.filter(u => {
         if (u.role === 'admin') return false;
-        const isInAnyDoor = devices.some(d => (d.allowedEmails || []).includes(u.email));
+        const isInAnyDoor = devices.some(d => ((d.allowedEmails || []).map(e => e.toLowerCase().trim())).includes((u.email || '').toLowerCase().trim()));
         return !isInAnyDoor;
     });
 
     // --- COMPONENTES AUXILIARES ---
 
-    const UserRow = ({ u }) => {
+    const handleRoleCycle = async (user) => {
+        // Cycle: user -> validador -> admin -> user
+        const currentRole = user.role || 'user';
+        let nextRole = 'user';
+        let label = 'Usuario';
+
+        if (currentRole === 'user') { nextRole = 'validador'; label = 'Validador'; }
+        else if (currentRole === 'validador') { nextRole = 'admin'; label = 'Administrador'; }
+        else if (currentRole === 'admin') { nextRole = 'user'; label = 'Usuario'; }
+
+        if (!confirm(`¿Cambiar rol de "${user.displayName || user.email}" a ${label}?`)) return;
+
+        try {
+            await UserService.updateUserRole(user.uid, nextRole);
+            setMsg({ type: 'success', text: `Rol actualizado a ${label}` });
+            // Optimistic update or reload
+            loadUsers();
+        } catch (e) {
+            console.error(e);
+            setMsg({ type: 'error', text: 'Error actualizando rol' });
+        }
+    };
+
+    const UserRow = ({ u, contextDevice }) => {
         const now = new Date();
         let statusNode = <span style={{ color: '#2ecc71' }}>Permanente</span>;
 
-        if (u.role !== 'admin' && (u.expirationDate || u.startDate)) {
-            // Lógica de visualización
-            const start = u.startDate ? new Date(u.startDate.seconds * 1000) : null;
-            const end = u.expirationDate ? new Date(u.expirationDate.seconds * 1000) : null;
+        // Visualización para PENDIENTES
+        if (u.isPending) {
+            return (
+                <tr key={u.uid} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>
+                    <td style={{ padding: '12px' }}>
+                        <div style={{ color: '#aaa', fontStyle: 'italic' }}>{u.email}</div>
+                        <div style={{ fontSize: '0.8em', color: '#666' }}>No registrado en App</div>
+                    </td>
+                    <td style={{ padding: '12px', fontSize: '0.9em', color: '#888' }}>
+                        <span style={{ border: '1px dashed #7f8c8d', padding: '2px 6px', borderRadius: '4px' }}>
+                            ⏳ Esperando Registro
+                        </span>
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                        <span style={{ background: '#34495e', color: '#fff', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em', opacity: 0.7 }}>User</span>
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
+                            <button
+                                onClick={() => alert(`⏳ Usuario Pendiente\n\nEste usuario aún no se ha registrado.\n\nLa licencia se activará automáticamente (30 días) cuando inicie sesión por primera vez.\nNo se puede editar antes del registro.`)}
+                                style={{ opacity: 0.8, background: 'transparent', border: '1px solid #3498db', color: '#3498db', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
+                                title="Ver inforamción de vigencia"
+                            >
+                                📅
+                            </button>
+                            {/* No mostramos botón eliminar aquí porque se gestiona en Configuración de Puerta (Lista Blanca) */}
+                            {/* O podríamos permitir eliminar de la lista blanca directamete? Sería muy complejo. Mejor que vayan a config. */}
+                            <div style={{ fontSize: '0.7em', color: '#555', maxWidth: '80px', textAlign: 'right' }}>
+                                Gestionar en Puerta
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            );
+        }
 
+        // Determinar fechas basado en contexto (EXISTENTE)
+        let start = u.startDate ? new Date(u.startDate.seconds * 1000) : null;
+        let end = u.expirationDate ? new Date(u.expirationDate.seconds * 1000) : null;
+        let isSpecific = false;
+
+        if (contextDevice && u.deviceAccess && u.deviceAccess[contextDevice.id]) {
+            const rule = u.deviceAccess[contextDevice.id];
+            start = rule.startDate ? new Date(rule.startDate.seconds * 1000) : null;
+            end = rule.expirationDate ? new Date(rule.expirationDate.seconds * 1000) : null;
+            isSpecific = true;
+        }
+
+        if (u.role !== 'admin' && (end || start)) {
+            // Lógica de visualización
             if (end && now > end) {
                 statusNode = <span style={{ color: '#e74c3c', fontWeight: 'bold', border: '1px solid #e74c3c', borderRadius: '4px', padding: '2px 4px' }}>EXPIRO: {end.toLocaleDateString()}</span>;
             } else if (start && now < start) {
@@ -141,9 +247,6 @@ export default function AdminUsersScreen({ devices, onBack }) {
         // Texto del Rango
         let rangeText = "";
         if (u.role !== 'admin') {
-            const start = u.startDate ? new Date(u.startDate.seconds * 1000) : null;
-            const end = u.expirationDate ? new Date(u.expirationDate.seconds * 1000) : null;
-
             if (start && end) {
                 rangeText = `${start.toLocaleDateString()} ➜ ${end.toLocaleDateString()}`;
             } else if (start) {
@@ -161,40 +264,47 @@ export default function AdminUsersScreen({ devices, onBack }) {
                 </td>
                 <td style={{ padding: '12px', fontSize: '0.9em' }}>
                     <div>{u.phone || '-'}</div>
-                    <div style={{ marginTop: '5px', fontSize: '0.8em' }}>{statusNode}</div>
+                    <div style={{ marginTop: '5px', fontSize: '0.8em' }}>
+                        {isSpecific && <span title="Regla específica para este dispositivo" style={{ marginRight: '5px' }}>🎯</span>}
+                        {statusNode}
+                    </div>
                     {rangeText && <div style={{ fontSize: '0.75em', color: '#aaa', marginTop: '2px' }}>{rangeText}</div>}
                 </td>
                 <td style={{ padding: '12px', textAlign: 'center' }}>
-                    {u.role === 'admin' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
-                            <span style={{ background: '#f39c12', color: 'black', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em', fontWeight: 'bold' }}>👑 Admin</span>
-                            <button onClick={() => handleRoleChange(u.uid, 'user')} style={{ background: 'transparent', color: '#e74c3c', border: '1px solid #e74c3c', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7em', cursor: 'pointer' }}>Degradar</button>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
-                            <span style={{ background: '#34495e', color: '#fff', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em' }}>👤 User</span>
-                            <button onClick={() => handleRoleChange(u.uid, 'admin')} style={{ background: 'transparent', color: '#2ecc71', border: '1px solid #2ecc71', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7em', cursor: 'pointer' }}>Ascender</button>
-                        </div>
-                    )}
+                    <button
+                        onClick={() => handleRoleCycle(u)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                        title="Clic para cambiar rol"
+                    >
+                        {u.role === 'admin' ? (
+                            <span style={{ background: '#f39c12', color: 'black', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em', fontWeight: 'bold' }}>Admin</span>
+                        ) : u.role === 'validador' ? (
+                            <span style={{ background: '#9b59b6', color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em', fontWeight: 'bold' }}>Validador</span>
+                        ) : (
+                            <span style={{ background: '#34495e', color: '#fff', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8em' }}>User</span>
+                        )}
+                    </button>
                 </td>
                 <td style={{ padding: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
                         {u.role !== 'admin' && (
                             <button
-                                onClick={() => openExpirationModal(u)}
+                                onClick={() => openExpirationModal(u, contextDevice)}
                                 style={{ background: 'transparent', border: '1px solid #3498db', color: '#3498db', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
-                                title="Configurar Vigencia"
+                                title={contextDevice ? `Configurar Vigencia en ${contextDevice.name}` : "Configurar Vigencia Global"}
                             >
                                 📅
                             </button>
                         )}
-                        <button
-                            onClick={() => handleDeleteUser(u.uid, u.displayName || u.email)}
-                            style={{ background: 'rgba(231, 76, 60, 0.1)', color: '#c0392b', border: '1px solid #c0392b', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
-                            title="Eliminar datos"
-                        >
-                            🗑️
-                        </button>
+                        {u.role !== 'admin' && (
+                            <button
+                                onClick={() => handleDeleteUser(u.uid, u.displayName || u.email)}
+                                style={{ background: 'rgba(231, 76, 60, 0.1)', color: '#c0392b', border: '1px solid #c0392b', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
+                                title="Eliminar datos"
+                            >
+                                🗑️
+                            </button>
+                        )}
                     </div>
                 </td>
             </tr>
@@ -212,11 +322,45 @@ export default function AdminUsersScreen({ devices, onBack }) {
         </thead>
     );
 
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [defaultDays, setDefaultDays] = useState(30);
+
+    const openSettings = async () => {
+        try {
+            const s = await UserService.getSystemSettings();
+            if (s.defaultLicenseDays) setDefaultDays(s.defaultLicenseDays);
+            setShowSettingsModal(true);
+        } catch (e) {
+            console.error(e);
+            alert("Error cargando configuración");
+        }
+    };
+
+    const saveSettings = async () => {
+        try {
+            await UserService.updateSystemSettings({ defaultLicenseDays: parseInt(defaultDays) });
+            setMsg({ type: 'success', text: 'Configuración guardada' });
+            setShowSettingsModal(false);
+            setTimeout(() => setMsg(null), 3000);
+        } catch (e) {
+            alert("Error guardando");
+        }
+    };
+
     return (
         <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', color: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px', gap: '15px' }}>
-                <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>←</button>
-                <h2 style={{ margin: 0 }}>Gestión de Usuarios</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>←</button>
+                    <h2 style={{ margin: 0 }}>Gestión de Usuarios</h2>
+                </div>
+                <button
+                    onClick={openSettings}
+                    style={{ background: '#34495e', color: '#fff', border: 'none', padding: '10px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', fontSize: '1.2rem' }}
+                    title="Configuración Global"
+                >
+                    ⚙️
+                </button>
             </div>
 
             {msg && (
@@ -241,7 +385,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                             <h3 style={{ borderBottom: '1px solid #3498db', paddingBottom: '10px', color: '#3498db', margin: '0 0 10px 0' }}>🚪 {group.device.name}</h3>
                             <div style={{ background: 'rgba(52, 152, 219, 0.05)', borderRadius: '8px', padding: '10px' }}>
                                 {group.users.length === 0 ? <p style={{ color: '#aaa', fontStyle: 'italic', margin: '10px' }}>Sin usuarios asignados.</p> :
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}><TableHeader /><tbody>{group.users.map(u => <UserRow key={u.uid} u={u} />)}</tbody></table>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}><TableHeader /><tbody>{group.users.map(u => <UserRow key={u.uid} u={u} contextDevice={group.device} />)}</tbody></table>
                                 }
                             </div>
                         </div>
@@ -251,7 +395,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                         <div className="user-group">
                             <h3 style={{ borderBottom: '1px solid #95a5a6', paddingBottom: '10px', color: '#95a5a6', margin: '0 0 10px 0' }}>⚠️ Sin Asignar</h3>
                             <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '10px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}><TableHeader /><tbody>{unassignedUsers.map(u => <UserRow key={u.uid} u={u} />)}</tbody></table>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}><TableHeader /><tbody>{unassignedUsers.map(u => <UserRow key={u.uid} u={u} contextDevice={null} />)}</tbody></table>
                             </div>
                         </div>
                     )}
@@ -265,10 +409,10 @@ export default function AdminUsersScreen({ devices, onBack }) {
                     background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
                 }}>
                     <div style={{ background: '#222', padding: '20px', borderRadius: '10px', width: '90%', maxWidth: '400px', border: '1px solid #444' }}>
-                        <h3>📅 Vigencia Global</h3>
-                        <p style={{ color: '#fff', fontWeight: 'bold' }}>{editingExpirationUser.displayName || 'Usuario'}</p>
-                        <p style={{ color: '#aaa', fontSize: '0.9em' }}>
-                            Configurando acceso global.
+                        <h3>{editingContextDevice ? `📅 Vigencia: ${editingContextDevice.name}` : `📅 Vigencia Global`}</h3>
+                        <p style={{ color: '#fff', fontWeight: 'bold', margin: '5px 0' }}>{editingExpirationUser.displayName || 'Usuario'}</p>
+                        <p style={{ color: '#aaa', fontSize: '0.9em', marginBottom: '15px' }}>
+                            {editingContextDevice ? 'Configurando acceso exclusivo para esta puerta.' : 'Configurando acceso por defecto para todas las puertas.'}
                         </p>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', margin: '20px 0' }}>
@@ -299,7 +443,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                     onChange={(e) => setTempStart(e.target.value)}
                                     style={inputStyle}
                                 />
-                                <div style={{ fontSize: '0.7em', color: '#666', marginTop: '2px' }}>Si se deja vacío, es acceso inmediato.</div>
+                                <div style={{ fontSize: '0.7em', color: '#666', marginTop: '2px' }}>Vacio = Inmediato</div>
                             </div>
 
                             <div>
@@ -310,7 +454,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                     onChange={(e) => setTempEnd(e.target.value)}
                                     style={inputStyle}
                                 />
-                                <div style={{ fontSize: '0.7em', color: '#666', marginTop: '2px' }}>Si se deja vacío, es acceso indefinido.</div>
+                                <div style={{ fontSize: '0.7em', color: '#666', marginTop: '2px' }}>Vacio = Indefinido</div>
                             </div>
 
                             <button onClick={() => {
@@ -342,7 +486,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                 Cancelar
                             </button>
                             <button
-                                onClick={handleSaveExpiration}
+                                onClick={() => handleSaveExpiration()}
                                 style={{ flex: 1, padding: '10px', background: '#3498db', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
                             >
                                 Guardar
@@ -351,6 +495,108 @@ export default function AdminUsersScreen({ devices, onBack }) {
                     </div>
                 </div>
             )}
+            {/* MODAL CONFIGURACIÓN */}
+            {showSettingsModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+                }}>
+                    <div style={{ background: '#222', padding: '25px', borderRadius: '10px', width: '90%', maxWidth: '350px', border: '1px solid #444' }}>
+                        <h3 style={{ marginTop: 0 }}>⚙️ Configuración Global</h3>
+
+                        <div style={{ margin: '20px 0' }}>
+                            <label style={{ display: 'block', fontSize: '0.9em', color: '#ccc', marginBottom: '5px' }}>
+                                Vigencia por Defecto (Nuevos Usuarios)
+                            </label>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={defaultDays}
+                                    onChange={(e) => setDefaultDays(e.target.value)}
+                                    style={{ ...inputStyle, width: '80px', textAlign: 'center', fontSize: '1.2em' }}
+                                />
+                                <span style={{ color: '#aaa' }}>días</span>
+                            </div>
+                            <p style={{ fontSize: '0.8em', color: '#666', marginTop: '10px' }}>
+                                Al registrarse un nuevo usuario, se le asignará esta duración automáticamente.
+                            </p>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                            <button
+                                onClick={() => setShowSettingsModal(false)}
+                                style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid #555', color: '#ccc', borderRadius: '4px', cursor: 'pointer' }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={saveSettings}
+                                style={{ flex: 1, padding: '10px', background: '#2ecc71', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                                Guardar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* DEBUG AREA */}
+            <details style={{ marginTop: '50px', color: '#555', cursor: 'pointer' }}>
+                <summary>🛠️ Debug: Lista cruda de usuarios en DB ({users.length})</summary>
+                <div style={{ padding: '10px', background: '#111', borderRadius: '8px', wordBreak: 'break-all', fontSize: '0.8em' }}>
+                    {users.map(u => (
+                        <div key={u.uid} style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ color: u.role === 'admin' ? '#f39c12' : '#ccc' }}>
+                                {u.email} ({u.role}) [{u.deviceAccess ? Object.keys(u.deviceAccess).length : 0} rules]
+                            </span>
+                            <button
+                                onClick={async () => {
+                                    if (confirm(`¿Regenerar licencias para ${u.email}?`)) {
+                                        await UserService.regenerateLicenses(u.uid, u.email);
+                                        alert("Regeneración solicitada. Recarga la página para ver cambios.");
+                                    }
+                                }}
+                                style={{ background: '#3498db', border: 'none', color: 'white', borderRadius: '4px', padding: '2px 5px', cursor: 'pointer', fontSize: '0.8em' }}
+                            >
+                                🔄
+                            </button>
+                        </div>
+                    ))}
+
+                    <hr style={{ borderColor: '#333', margin: '15px 0' }} />
+
+                    <button
+                        onClick={async () => {
+                            if (!confirm("⚠️ ¿Sincronizar Listas?\n\nEsto eliminará de TODAS las puertas a cualquier usuario que no esté registrado en la base de datos (excepto tú).\n\nLos usuarios 'Pendientes' serán borrados permanentemente.")) return;
+
+                            try {
+                                const validEmails = users.map(u => u.email.toLowerCase().trim());
+                                const currentUserEmail = FirebaseService.auth.currentUser?.email?.toLowerCase();
+                                if (!validEmails.includes(currentUserEmail)) validEmails.push(currentUserEmail);
+
+                                let updatedCount = 0;
+
+                                for (const device of devices) {
+                                    const currentAllowed = (device.allowedEmails || []).map(e => e.toLowerCase().trim());
+                                    const newAllowed = currentAllowed.filter(email => validEmails.includes(email));
+
+                                    // Solo actualizar si hay cambios
+                                    if (newAllowed.length !== currentAllowed.length) {
+                                        console.log(`Cleaning device ${device.name}:`, currentAllowed, '->', newAllowed);
+                                        await FirebaseService.updateDoor(device.id, { allowedEmails: newAllowed });
+                                        updatedCount++;
+                                    }
+                                }
+
+                                alert(`Proceso completado.\nSe actualizaron ${updatedCount} puertas.`);
+                            } catch (e) { console.error(e); alert("Error: " + e.message); }
+                        }}
+                        style={{ background: '#e74c3c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginTop: '10px' }}
+                    >
+                        🧹 Limpiar Usuarios Fantasma
+                    </button>
+                </div>
+            </details>
         </div>
     );
 }

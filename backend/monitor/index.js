@@ -29,15 +29,13 @@ try {
     process.exit(1);
 }
 
-// Helper de espera
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// --- LÓGICA DE SHELLY ---
 
 /**
  * Consulta el estado de un dispositivo Shelly a través de la nube
+ * Incluye reintento automático para errores 429.
  */
-async function checkShellyStatus(door) {
+async function checkShellyStatus(door, retryCount = 0) {
     if (!door.serverUrl || !door.deviceId || !door.authKey) {
         return { online: false, error: 'Config incomplète' };
     }
@@ -72,12 +70,21 @@ async function checkShellyStatus(door) {
             method: 'POST',
             body: formData,
             signal: controller.signal,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'AccessControlApp/6.0 (Monitor)' // Header cortés
+            }
         });
 
         clearTimeout(timeout);
 
         if (response.status === 429) {
+            // REINTENTO SOFT EN 429
+            if (retryCount < 1) {
+                console.log(`       ⚠️ 429 Detectado en ${door.deviceId}. Reintentando en 2s...`);
+                await delay(2000);
+                return checkShellyStatus(door, retryCount + 1);
+            }
             return { online: false, error: '⚠️ BUSY (429)' };
         }
 
@@ -102,9 +109,11 @@ async function checkShellyStatus(door) {
             isOnline = false;
         }
 
+        // Si detectamos isOnline true, forzamos error a null para limpiar cualquier estado previo
         return {
             online: isOnline,
             ip: data.data?.ip || null,
+            error: null, // IMPORTANTE: Limpiar errores si tuvimos éxito
             lastSeen: new Date().toISOString()
         };
 

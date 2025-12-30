@@ -34,6 +34,7 @@ import {
     reauthenticateWithCredential,
     EmailAuthProvider
 } from 'firebase/auth';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // --- CONFIGURACIÓN DE FIREBASE (¡REEMPLAZA ESTO!) ---
 const firebaseConfig = {
@@ -50,12 +51,14 @@ const firebaseConfig = {
 // Inicialización segura (Singleton)
 let db;
 let auth;
+let functions;
 const googleProvider = new GoogleAuthProvider();
 
 try {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    functions = getFunctions(app);
 } catch (e) {
     console.warn("⚠️ Firebase no configurado correctamente. Edita src/services/firebase.js", e);
 }
@@ -141,6 +144,49 @@ export const FirebaseService = {
         if (!db) throw new Error("Firebase no configurado");
         const doorRef = doc(db, COLLECTION_NAME, doorId);
         return await updateDoc(doorRef, data);
+    },
+
+    /**
+     * CÁMARAS CCTV
+     */
+    subscribeToCameras: (callback) => {
+        if (!db) return () => { };
+        // Todos descargan todas las cámaras (la seguridad estará en no mostrarlas si no están asignadas)
+        // O mejor: si es admin ve todo, si es usuario no necesita ver la lista completa, 
+        // solo leerá la cámara asociada a su puerta.
+        // Por simplicidad: Sync de todas las cámaras (suelen ser pocas).
+        const q = query(collection(db, 'cameras'), orderBy('name'));
+        return onSnapshot(q, (snapshot) => {
+            const cameras = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            callback(cameras);
+        });
+    },
+
+    addCamera: async (cameraData) => {
+        if (!db) throw new Error("Firebase no configurado");
+        return await addDoc(collection(db, 'cameras'), cameraData);
+    },
+
+    updateCamera: async (cameraId, data) => {
+        if (!db) throw new Error("Firebase no configurado");
+        return await updateDoc(doc(db, 'cameras', cameraId), data);
+    },
+
+    deleteCamera: async (cameraId) => {
+        if (!db) throw new Error("Firebase no configurado");
+        return await deleteDoc(doc(db, 'cameras', cameraId));
+    },
+
+    verifyTuyaCamera: async (credentials) => {
+        if (!functions) throw new Error("Functions no configurado (Firebase V9)");
+        const verifyFn = httpsCallable(functions, 'verifyTuyaCredentials');
+        return await verifyFn(credentials); // { data: { success: true, ... } }
+    },
+
+    getTuyaHlsUrl: async (credentials) => {
+        if (!functions) throw new Error("Functions no configurado");
+        const getUrlFn = httpsCallable(functions, 'getTuyaHlsUrl');
+        return await getUrlFn(credentials); // { data: { success: true, url: ... } }
     },
 
     /**

@@ -52,7 +52,7 @@ export default function UnlockButton({ onUnlock, disabled, onlineState = 'online
                 disabled={!isInteractive}
             >
                 <div className="icon-container">
-                    {status === 'idle' && onlineState === 'online' && <span className="material-icon">🔓</span>}
+                    {status === 'idle' && (onlineState === 'online' || onlineState === 'busy') && <span className="material-icon">🔓</span>}
                     {status === 'idle' && onlineState === 'offline' && <span className="material-icon">🚫</span>}
                     {status === 'idle' && onlineState === 'checking' && <div className="spinner mini"></div>}
 

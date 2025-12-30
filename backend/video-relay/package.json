@@ -1,0 +1,13 @@
+{
+    "name": "dahua-relay-prototype",
+    "version": "1.0.0",
+    "description": "Local RTMP to Web Relay for Dahua Cameras",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "body-parser": "^2.2.1",
+        "node-media-server": "^2.4.9"
+    }
+}

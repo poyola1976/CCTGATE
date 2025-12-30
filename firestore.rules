@@ -10,6 +10,12 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // Verificar si el usuario es validador
+    function isValidator() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'validador';
+    }
+
     // Verificar si el usuario está autenticado
     function isAuthenticated() {
       return request.auth != null;
@@ -27,16 +33,18 @@ service cloud.firestore {
     // - Usuario ve y edita SU propio perfil.
     match /users/{userId} {
       allow read: if isAdmin() || isOwner(userId);
-      allow write: if isAdmin() || isOwner(userId);
+      allow create, update: if isAdmin() || isOwner(userId);
+      allow delete: if (isAdmin() || isOwner(userId)) && resource.data.role != 'admin';
     }
 
     // 2. Puertas (Devices):
     // - Admin: Control total.
+    // - Validador: Puede EDITAR (update), pero NO crear ni eliminar.
     // - Usuario: Solo lectura SI su email está en 'allowedEmails'.
     match /doors/{doorId} {
-      allow read: if isAdmin() || (isAuthenticated() && request.auth.token.email in resource.data.allowedEmails);
-      allow write: if isAdmin();
-      allow create: if isAdmin();
+      allow read: if isAdmin() || isValidator() || (isAuthenticated() && request.auth.token.email in resource.data.allowedEmails);
+      allow update: if isAdmin() || isValidator();
+      allow create, delete: if isAdmin();
     }
 
     // 3. Logs de Acceso:
@@ -45,6 +53,21 @@ service cloud.firestore {
     match /access_logs/{logId} {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // 4. Configuración Global (Settings):
+    // - Admin: Lee y escribe.
+    // - Usuario: Solo lee (para saber duración de licencias).
+    match /settings/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    // 5. Cámaras CCTV:
+    // - Admin: Lee y escribe.
+    // - Usuario: Lee todo (para simplificar sync), pero solo usa las asignadas.
+    match /cameras/{cameraId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

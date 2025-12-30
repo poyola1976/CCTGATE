@@ -112,7 +112,7 @@ export default function LoginScreen({ onLogin }) {
                 sessionStorage.setItem('auth_error', msg);
             }
 
-            if (err.code === 'auth/email-already-in-use') msg = "Este correo ya está registrado.";
+            if (err.code === 'auth/email-already-in-use') msg = "Este correo ya existe (Auth). Intenta INICIAR SESIÓN.";
             if (err.code === 'auth/weak-password') msg = "La contraseña debe tener al menos 6 caracteres.";
             if (err.code === 'auth/user-not-found') msg = "Usuario no encontrado (probablemente rechazado).";
             if (err.code === 'auth/wrong-password') msg = "Contraseña incorrecta.";

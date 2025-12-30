@@ -1,4 +1,4 @@
-# Logs
+npm# Logs
 logs
 *.log
 npm-debug.log*
@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets (Security Rule Violation Fix)
+.env
+.env.txt
+
+# Large Files
+*.rar
+*.zip
+backend.rar

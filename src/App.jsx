@@ -15,10 +15,31 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [accessStatus, setAccessStatus] = useState({ allowed: true, message: '' }); // Global fallback
   const [expirationDate, setExpirationDate] = useState(null);
-  // const [userProfile, setUserProfile] = useState(null); // Perfil completo (REMOVIDO EN REVERT)
-  // const [devicePermissions, setDevicePermissions] = useState({}); // Mapa de permisos por dispositivo (REMOVIDO EN REVERT)
+  const [userProfile, setUserProfile] = useState(null); // Perfil completo
 
   const [devices, setDevices] = useState([]);
+  const [cameras, setCameras] = useState([]);
+
+  // Helper para agrupar
+  const groupDevices = (allDevices) => {
+    const groups = {};
+    const noGroup = [];
+
+    allDevices.forEach(d => {
+      if (d.group && d.group.trim() !== '') {
+        if (!groups[d.group]) groups[d.group] = [];
+        groups[d.group].push(d);
+      } else {
+        noGroup.push(d);
+      }
+    });
+
+    return { groups, noGroup };
+  };
+
+  const { groups, noGroup } = groupDevices(devices);
+  const sortedGroupNames = Object.keys(groups).sort();
+  const hasMultipleGroups = sortedGroupNames.length > 0;
 
   // View State: 'home', 'config', 'users'
   const [currentView, setCurrentView] = useState('home');
@@ -46,18 +67,23 @@ function App() {
           setUserRole(role);
           setUser(currentUser);
 
-          // 2. Verificación de Vencimiento (Solo si es usuario válido)
+          // 2. Cargar Perfil Completo (Vigencias)
           try {
             const profile = await UserService.getUserProfile(currentUser.uid);
-            if (profile?.expirationDate?.seconds) {
+            setUserProfile(profile);
+
+            // Compatibilidad legacy: Global Expiration para indicador visual de llave
+            // Compatibilidad legacy: Global Expiration para indicador visual de llave
+            if (role === 'validador' || role === 'admin') {
+              setExpirationDate(null);
+            } else if (profile?.expirationDate?.seconds) {
               setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
             } else {
               setExpirationDate(null);
             }
           } catch (e) {
-            console.error("Error checking expiration", e);
+            console.error("Error checking profile", e);
           }
-
         } catch (e) {
           console.error("Error fetching role", e);
           if (e.message === 'UNAUTHORIZED_REGISTRATION') {
@@ -98,15 +124,22 @@ function App() {
       unsubscribe = FirebaseService.subscribeToDoors((updatedDevices) => {
         setDevices(updatedDevices);
         // NO forzamos ir a config si está vacío, eso es solo para admin
-        if (updatedDevices.length === 0 && userRole === 'admin' && currentView === 'home') {
+        if (updatedDevices.length === 0 && (userRole === 'admin' || userRole === 'validador') && currentView === 'home') {
           // Opcional: setCurrentView('config'); 
         }
-      }, userRole, user?.email); // <--- Argumentos nuevos
+      }, userRole, user?.email?.toLowerCase()); // <--- Argumentos nuevos
     } catch (e) {
       console.error("Firebase connection error", e);
     }
     return () => unsubscribe();
   }, [user, userRole]);
+
+  // 2b. Sincronización Cámaras (Solo si logueado)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = FirebaseService.subscribeToCameras(setCameras);
+    return () => unsub();
+  }, [user]);
 
   // 3. Cálculo de Permisos por Dispositivo (REMOVIDO EN REVERT)
   /*
@@ -148,6 +181,27 @@ function App() {
       console.error("Update error", error);
       setLastMessage({ type: 'error', text: 'Error al actualizar' });
     }
+  };
+
+  // --- CAMERA ACTIONS ---
+  const handleSaveCamera = async (newCam) => {
+    try {
+      await FirebaseService.addCamera(newCam);
+      setLastMessage({ type: 'success', text: 'Cámara guardada' });
+    } catch (e) { setLastMessage({ type: 'error', text: e.message }); }
+  };
+  const handleUpdateCamera = async (newCam) => {
+    try {
+      const { id, ...data } = newCam;
+      await FirebaseService.updateCamera(id, data);
+      setLastMessage({ type: 'success', text: 'Cámara actualizada' });
+    } catch (e) { setLastMessage({ type: 'error', text: e.message }); }
+  };
+  const handleDeleteCamera = async (id) => {
+    try {
+      await FirebaseService.deleteCamera(id);
+      setLastMessage({ type: 'success', text: 'Cámara eliminada' });
+    } catch (e) { setLastMessage({ type: 'error', text: e.message }); }
   };
 
   const checkLicenseStatus = () => {
@@ -289,17 +343,19 @@ function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          {currentView === 'home' && userRole === 'admin' && (
+          {currentView === 'home' && (userRole === 'admin' || userRole === 'validador') && (
             <>
-              <button
-                className="settings-btn"
-                onClick={() => setCurrentView('users')}
-                aria-label="Usuarios"
-                title="Gestión de Usuarios"
-                style={{ fontSize: '1.2rem' }}
-              >
-                👥
-              </button>
+              {userRole === 'admin' && (
+                <button
+                  className="settings-btn"
+                  onClick={() => setCurrentView('users')}
+                  aria-label="Usuarios"
+                  title="Gestión de Usuarios"
+                  style={{ fontSize: '1.2rem' }}
+                >
+                  👥
+                </button>
+              )}
               <button
                 className="settings-btn"
                 onClick={() => setCurrentView('config')}
@@ -311,26 +367,7 @@ function App() {
             </>
           )}
 
-          {/* INDICADOR DE LICENCIA */}
-          {userRole !== 'admin' && ( // Solo mostrar a usuarios normales, admins son perpetuos
-            <button
-              onClick={checkLicenseStatus}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '0 5px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-              title="Estado de Vigencia"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill={getLicenseColor()}>
-                <path d="M0 0h24v24H0z" fill="none" />
-                <path d="M21 10h-8.35C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H13l2 2 2-2 2 2 4-4.04L21 10zM7 15c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
-              </svg>
-            </button>
-          )}
+
 
           <button
             onClick={() => setShowProfileModal(true)}
@@ -366,12 +403,19 @@ function App() {
       </header>
 
       <main>
-        {currentView === 'config' && userRole === 'admin' ? (
+        {currentView === 'config' && (userRole === 'admin' || userRole === 'validador') ? (
           <ConfigScreen
+            userRole={userRole}
             devices={devices}
             onSaveDevice={handleSaveDevice}
             onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
+            // CCTV Props
+            cameras={cameras}
+            onSaveCamera={handleSaveCamera}
+            onUpdateCamera={handleUpdateCamera}
+            onDeleteCamera={handleDeleteCamera}
+
             onBack={() => setCurrentView('home')}
           />
         ) : currentView === 'users' && userRole === 'admin' ? (
@@ -382,14 +426,61 @@ function App() {
 
             {devices.length > 0 ? (
               <div className="doors-grid">
-                {devices.map(device => (
-                  <DoorControl
-                    key={device.id}
-                    device={device}
-                    onMessage={handleChildMessage}
-                    isAdmin={userRole === 'admin'}
-                  />
+
+                {/* 1. Grupos con Nombre (Acordeones) */}
+                {sortedGroupNames.map(groupName => (
+                  <details key={groupName} style={{ width: '100%', marginBottom: '10px' }}>
+                    <summary style={{
+                      cursor: 'pointer',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      padding: '12px',
+                      background: 'rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      border: '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>📂 {groupName}</span>
+                      <span style={{ fontSize: '0.8em', opacity: 0.6, background: 'rgba(0,0,0,0.3)', padding: '2px 8px', borderRadius: '10px' }}>
+                        {groups[groupName].length}
+                      </span>
+                    </summary>
+                    <div style={{ paddingLeft: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      {groups[groupName].map(device => (
+                        <DoorControl
+                          key={device.id}
+                          device={device}
+                          onMessage={handleChildMessage}
+                          isAdmin={userRole === 'admin'}
+                          userProfile={userProfile}
+                          // Pass associated camera object if exists
+                          camera={cameras.find(c => c.id === device.associatedCameraId)}
+                        />
+                      ))}
+                    </div>
+                  </details>
                 ))}
+
+                {/* 2. Dispositivos "Sueltos" (Sin Grupo) */}
+                {noGroup.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', width: '100%' }}>
+                    {hasMultipleGroups && <h3 style={{ margin: '15px 0 10px', fontSize: '0.9rem', color: '#999', textTransform: 'uppercase', letterSpacing: '1px' }}>Otros Dispositivos</h3>}
+                    {noGroup.map(device => (
+                      <DoorControl
+                        key={device.id}
+                        device={device}
+                        onMessage={handleChildMessage}
+                        isAdmin={userRole === 'admin'}
+                        // Pass associated camera object if exists
+                        camera={cameras.find(c => c.id === device.associatedCameraId)}
+                      />
+                    ))}
+                  </div>
+                )}
+
               </div>
             ) : (
               <div style={{ textAlign: 'center', marginTop: '50px' }}>

@@ -2,16 +2,17 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 40px;
+    padding: 15px;
 }
 
 .unlock-btn {
-    width: 200px;
-    height: 200px;
+    width: 130px;
+    height: 130px;
     border-radius: 50%;
-    border: none;
+    border: 2px solid #ccc;
+    /* Light Gray Border */
     background: linear-gradient(145deg, #1e1e1e, #2a2a2a);
-    box-shadow: 20px 20px 60px #1a1a1a, -20px -20px 60px #323232;
+    box-shadow: 10px 10px 30px #1a1a1a, -10px -10px 30px #323232;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -43,7 +44,7 @@
 }
 
 .unlock-btn.idle .material-icon {
-    font-size: 4rem;
+    font-size: 3rem;
     color: var(--primary-color);
     text-shadow: 0 0 15px rgba(100, 108, 255, 0.5);
 }
@@ -59,8 +60,8 @@
 }
 
 .label {
-    margin-top: 10px;
-    font-size: 1.1rem;
+    margin-top: 5px;
+    font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 1px;
     color: rgba(255, 255, 255, 0.9);
