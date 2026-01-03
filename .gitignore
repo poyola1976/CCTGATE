@@ -31,3 +31,6 @@ dist-ssr
 *.rar
 *.zip
 backend.rar
+
+# Secrets
+backend/monitor/serviceAccountKey.json

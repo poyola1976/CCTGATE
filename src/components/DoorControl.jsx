@@ -36,17 +36,16 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         ? UserService.checkUserAccess(userProfile, device.id)
         : { allowed: true };
 
-    const dotRef = useRef(null);
-    const [showLogs, setShowLogs] = useState(false);
-    const [showUsers, setShowUsers] = useState(false);
     const [showCamera, setShowCamera] = useState(false);
-    const [logs, setLogs] = useState([]);
-
-    // --- HLS STREAMING LOGIC ---
-    const videoRef = useRef(null);
-    const playerRef = useRef(null);
     const [streamStatus, setStreamStatus] = useState('init'); // init, loading, playing, error
     const [streamError, setStreamError] = useState('');
+    const videoRef = useRef(null);
+    const playerRef = useRef(null);
+    const dotRef = useRef(null);
+
+    const [showLogs, setShowLogs] = useState(false);
+    const [logs, setLogs] = useState([]);
+    const [showUsers, setShowUsers] = useState(false);
 
     const [authorizedUsersData, setAuthorizedUsersData] = useState({});
 
@@ -113,63 +112,75 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     useEffect(() => {
         if (showCamera && camera && camera.type === 'rtmp') {
-            if (flvjs.isSupported()) {
+            // Safety check for library availability
+            if (flvjs && flvjs.isSupported()) {
                 // Cleanup previous player
                 if (playerRef.current) {
                     playerRef.current.destroy();
                     playerRef.current = null;
                 }
 
-                // Construct URL
-                // Default port 8000 for Node-Media-Server HTTP-FLV
-                const port = 8000;
-                // If rtmpServerIp is provided use it, otherwise window.location.hostname
-                const serverIp = camera.rtmpServerIp || window.location.hostname;
-                const url = `http://${serverIp}:${port}/live/${camera.rtmpStreamKey}.flv`;
+                try {
+                    // Construct URL
+                    const port = 8000;
 
-                console.log("Intentando reproducir FLV:", url);
-                setStreamStatus('loading');
+                    // Restore Dynamic URL logic
+                    const serverIp = camera.rtmpServerIp || '64.176.19.27';
+                    // Fallback to 'cam1' only if no stream key is present, but prefer the object's key
+                    const streamKey = camera.rtmpStreamKey || 'cam1';
+                    const url = `http://${serverIp}:${port}/live/${streamKey}.flv`;
 
-                const flvPlayer = flvjs.createPlayer({
-                    type: 'flv',
-                    url: url,
-                    isLive: true,
-                    hasAudio: false
-                });
+                    setStreamStatus('loading');
 
-                flvPlayer.attachMediaElement(videoRef.current);
-                flvPlayer.load();
-
-                const playPromise = flvPlayer.play();
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        setStreamStatus('playing');
-                        setStreamError('');
-                    }).catch(err => {
-                        console.error("Error al iniciar reproducción:", err);
-                        // Don't set error immediately on unnecessary autoplay blocks, let generic error handler catch criticals
+                    // Default configuration
+                    const flvPlayer = flvjs.createPlayer({
+                        type: 'flv',
+                        url: url,
+                        isLive: true,
+                        hasAudio: false,
+                        cors: true
                     });
-                }
 
-                flvPlayer.on(flvjs.Events.LOADING_COMPLETE, () => {
-                    console.log("FLV Loading Complete");
-                });
+                    flvPlayer.attachMediaElement(videoRef.current);
+                    flvPlayer.load();
 
-                flvPlayer.on(flvjs.Events.ERROR, (type, details) => {
-                    console.error("FLV Error:", type, details);
+                    const playPromise = flvPlayer.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            setStreamStatus('playing');
+                            setStreamError('');
+                        }).catch(err => {
+                            console.error("FLV Play Warning:", err);
+                        });
+                    }
+
+                    flvPlayer.on(flvjs.Events.STATISTICS_INFO, () => {
+                        if (streamStatus !== 'playing') setStreamStatus('playing');
+                    });
+
+                    flvPlayer.on(flvjs.Events.ERROR, (type, details) => {
+                        console.error("FLV Error:", type, details);
+                        setStreamStatus('error');
+                        setStreamError(`Error Stream: ${type}`);
+                    });
+
+                    playerRef.current = flvPlayer;
+
+                } catch (err) {
+                    console.error("CRITICAL FLV INIT ERROR:", err);
                     setStreamStatus('error');
-                    setStreamError(`Error: ${type} ${details}`);
-                });
-
-                playerRef.current = flvPlayer;
+                    setStreamError('Error crítico al iniciar video: ' + err.message);
+                }
             } else {
                 setStreamStatus('error');
-                setStreamError('Navegador no soporta FLV');
+                setStreamError('Navegador no soporta FLV (o librería no cargada)');
             }
         }
 
         return () => {
             if (playerRef.current) {
+                // Check if destroy exists (it might be null if init failed)
+                if (playerRef.current.destroy) playerRef.current.destroy();
                 playerRef.current = null;
             }
         };
@@ -279,8 +290,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             border: '1px solid rgba(255,255,255,0.1)',
             position: 'relative',
             opacity: !accessCheck.allowed ? 0.7 : 1
-        }
-        }>
+        }}>
             {!accessCheck.allowed && (
                 <div style={{
                     position: 'absolute', top: 10, right: 10,
@@ -347,12 +357,6 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                         📜 {showLogs ? 'Ocultar Historial' : 'Ver Historial'}
                     </button>
 
-                    {!isAdmin && userProfile && (
-                        <LicenseIndicator
-                            user={userProfile}
-                            deviceId={device.id}
-                        />
-                    )}
                     {isAdmin && (
                         <button
                             onClick={toggleUsers}
@@ -506,9 +510,11 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.9em', color: '#ddd' }}>
                                 {device.allowedEmails.map((emailRaw, i) => {
                                     const email = emailRaw.toLowerCase();
+                                    const userDetails = authorizedUsersData[email] || {};
+
                                     // Calcular fechas específicas o globales
                                     // Admin/Validador = Permanente (Return null expiration, que significa permanente aquí)
-                                    if (user.role === 'admin' || user.role === 'validador') {
+                                    if (userDetails.role === 'admin' || userDetails.role === 'validador') {
                                         // Force permanent
                                         return (
                                             <button style={{ background: 'transparent', border: 'none', padding: '0 5px' }} title="Licencia Permanente (Rol)">
@@ -520,11 +526,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                                         );
                                     }
 
-                                    let expirationDate = user.expirationDate ? new Date(user.expirationDate.seconds * 1000) : null;
+
+                                    let expirationDate = userDetails.expirationDate ? new Date(userDetails.expirationDate.seconds * 1000) : null;
 
                                     // Regla específica mata global
-                                    if (user.deviceAccess && user.deviceAccess[deviceId]) {
-                                        const rule = user.deviceAccess[deviceId];
+                                    if (userDetails.deviceAccess && userDetails.deviceAccess[device.id]) {
+                                        const rule = userDetails.deviceAccess[device.id];
                                         if (rule.expirationDate) {
                                             expirationDate = new Date(rule.expirationDate.seconds * 1000);
                                         }
@@ -556,23 +563,29 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                                     }
 
                                     return (
-                                        <button
-                                            onClick={checkStatus}
-                                            style={{
-                                                background: 'transparent',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                padding: '0 5px',
-                                                display: 'flex',
-                                                alignItems: 'center'
-                                            }}
-                                            title="Ver Vigencia"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill={color}>
-                                                <path d="M0 0h24v24H0z" fill="none" />
-                                                <path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-6h-8.35zM7 15c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
-                                            </svg>
-                                        </button>
+                                        <li key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '2px' }}>
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '10px' }} title={email}>
+                                                {userDetails.displayName || userDetails.email || email}
+                                            </span>
+                                            <button
+                                                onClick={checkStatus}
+                                                style={{
+                                                    background: 'transparent',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    padding: '0 5px',
+                                                    display: 'flex',
+                                                    alignItems: 'center'
+                                                }}
+                                                title="Ver Vigencia"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill={color}>
+                                                    <path d="M0 0h24v24H0z" fill="none" />
+                                                    <path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-6h-8.35zM7 15c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
+                                                    <path d="M0 0h24v24H0z" fill="none" />
+                                                </svg>
+                                            </button>
+                                        </li>
                                     );
                                 })}
                             </ul>
@@ -580,7 +593,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     </div>
                 )
             }
-        </div>
+        </div >
     );
 }
 
@@ -620,3 +633,5 @@ const WifiStatusIcon = ({ state }) => {
         </svg>
     );
 };
+
+

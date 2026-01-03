@@ -39,7 +39,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 // --- CONFIGURACIÓN DE FIREBASE (¡REEMPLAZA ESTO!) ---
 const firebaseConfig = {
     // Pega aquí tus credenciales de Firebase Console -> Project Settings -> General -> Your apps
-    apiKey: "AIzaSyDeGitBPAMzwr1V0rXnWS-fC9dUpIRVJUw",
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: "api-gate-af1a9.firebaseapp.com",
     projectId: "api-gate-af1a9",
     storageBucket: "api-gate-af1a9.firebasestorage.app",
@@ -60,7 +60,12 @@ try {
     auth = getAuth(app);
     functions = getFunctions(app);
 } catch (e) {
-    console.warn("⚠️ Firebase no configurado correctamente. Edita src/services/firebase.js", e);
+    console.error("🔥 CRITICAL FIREBASE ERROR:", e);
+    // Alerting in console isn't enough for the user, but we will catch 'auth' being null later.
+    // Explicitly check for missing API Key to give a helpful hint
+    if (!firebaseConfig.apiKey) {
+        console.error("❌ FALTA API KEY: Verifica tu archivo .env y asegúrate de reiniciar el servidor (VITE_FIREBASE_API_KEY).");
+    }
 }
 
 const COLLECTION_NAME = 'doors';
