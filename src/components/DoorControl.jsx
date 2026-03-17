@@ -83,11 +83,10 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     };
 
     const toggleLogs = async () => {
-        if (!showLogs) {
-            setShowUsers(false);
-            const history = await FirebaseService.getLogsForDoor(device.id);
-            setLogs(history);
-        }
+        // Siempre recargamos el historial al abrir (evita datos en caché después de una apertura)
+        setShowUsers(false);
+        const history = await FirebaseService.getLogsForDoor(device.id);
+        setLogs(history);
         setShowLogs(!showLogs);
     };
 

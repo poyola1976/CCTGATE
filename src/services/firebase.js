@@ -18,7 +18,8 @@ import {
     orderBy,
     where,
     limit,
-    getDocs
+    getDocs,
+    serverTimestamp
 } from 'firebase/firestore';
 import {
     getAuth,
@@ -199,10 +200,10 @@ export const FirebaseService = {
      */
     addAccessLog: async (logData) => {
         if (!db) return;
-        // Agregamos timestamp de servidor
+        // Usamos serverTimestamp() de Firestore para garantizar tipo Timestamp correcto
         return await addDoc(collection(db, LOGS_COLLECTION), {
             ...logData,
-            timestamp: new Date()
+            timestamp: serverTimestamp()
         });
     },
 
@@ -219,14 +220,13 @@ export const FirebaseService = {
             const querySnapshot = await getDocs(q);
             const logs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // Ordenar en cliente: más reciente primero es MAYOR timestamp
-            return logs.sort((a, b) => {
-                const tA = a.timestamp?.seconds || 0;
-                const tB = b.timestamp?.seconds || 0;
-                // si es Date object (timestamp local antes de sync)
-                if (a.timestamp instanceof Date) return b.timestamp - a.timestamp;
-                return tB - tA;
-            });
+            // Ordenar en cliente: más reciente primero — maneja Firestore Timestamp y Date
+            const getSeconds = (ts) => {
+                if (!ts) return 0;
+                if (ts instanceof Date) return ts.getTime() / 1000;
+                return ts.seconds || 0;
+            };
+            return logs.sort((a, b) => getSeconds(b.timestamp) - getSeconds(a.timestamp));
 
         } catch (e) {
             console.error("Error fetching logs:", e);
