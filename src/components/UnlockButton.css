@@ -43,6 +43,15 @@
     opacity: 0.9;
 }
 
+.unlock-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    background: #1a1a1a;
+    box-shadow: none;
+    border-color: #333;
+    filter: grayscale(100%);
+}
+
 .unlock-btn.idle .material-icon {
     font-size: 3rem;
     color: var(--primary-color);

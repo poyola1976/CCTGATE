@@ -49,9 +49,9 @@ service cloud.firestore {
 
     // 3. Logs de Acceso:
     // - Admin: Ve todo.
-    // - Usuario: Crea logs (al abrir puerta) y ve solo los suyos.
+    // - Usuario: Crea logs y ve los logs de la puerta SI tiene acceso a ella.
     match /access_logs/{logId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/doors/$(resource.data.doorId)).data.allowedEmails.hasAny([request.auth.token.email]));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
     }
 

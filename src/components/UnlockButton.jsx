@@ -41,7 +41,7 @@ export default function UnlockButton({ onUnlock, disabled, onlineState = 'online
         if (onlineState === 'checking') return "CONECTANDO...";
         if (onlineState === 'offline') return "OFFLINE 🔴";
 
-        return "ABRIR PUERTA";
+        return "ACCIONAR PUERTA";
     };
 
     return (

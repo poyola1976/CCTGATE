@@ -210,11 +210,12 @@ export const FirebaseService = {
     getLogsForDoor: async (doorId, limitCount = 20) => {
         if (!db) return [];
         try {
-            // NOTA: Quitamos orderBy('timestamp') para evitar requerir un índice compuesto manual en Firestore.
-            // Ordenamos en el cliente (arrays pequeños).
+            // Añadimos orderBy para obtener siempre los 20 más recientes. 
+            // ⚠️ REQUIERE ÍNDICE Compuesto (doorId ASC, timestamp DESC) en la consola de Firebase.
             const q = query(
                 collection(db, LOGS_COLLECTION),
                 where('doorId', '==', doorId),
+                orderBy('timestamp', 'desc'),
                 limit(limitCount)
             );
             const querySnapshot = await getDocs(q);
