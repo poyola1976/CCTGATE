@@ -141,8 +141,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             const serverDomain = 'cctgate.i2r.cl';
             const streamKey = camera.rtmpStreamKey || 'cam1';
             const flvUrl = `https://${serverDomain}:${port}/live/${streamKey}.flv`;
+            const hlsUrl = `https://${serverDomain}:${port}/live/${streamKey}/index.m3u8`;
 
-            if (flvjs && flvjs.isSupported()) {
+            // DETECTOR DE IPHONE / IPAD
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+            if (flvjs && flvjs.isSupported() && !isIOS) {
                 if (playerRef.current) {
                     if (typeof playerRef.current.destroy === 'function') playerRef.current.destroy();
                     playerRef.current = null;
@@ -168,6 +172,27 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 } catch (err) {
                     setStreamStatus('error');
                     setStreamError('Error al iniciar reproductor');
+                }
+            } else {
+                // MODO HLS (iOS Safari / Fallback)
+                setStreamStatus('loading');
+                if (videoRef.current) {
+                    videoRef.current.src = hlsUrl;
+                    videoRef.current.setAttribute('playsinline', 'true');
+                    videoRef.current.setAttribute('webkit-playsinline', 'true');
+
+                    videoRef.current.onloadedmetadata = () => {
+                        setStreamStatus('playing');
+                        videoRef.current.play().catch(e => {
+                            console.warn("AutoPlay blocked on iOS", e);
+                            setStreamError('Presiona Play para ver');
+                        });
+                    };
+
+                    videoRef.current.onerror = () => {
+                        setStreamStatus('error');
+                        setStreamError('Cámara Offline (iOS)');
+                    };
                 }
             }
         }
