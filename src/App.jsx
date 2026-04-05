@@ -8,6 +8,8 @@ import AdminUsersScreen from './components/AdminUsersScreen';
 import { FirebaseService } from './services/firebase';
 import { UserService } from './services/userService';
 import { onAuthStateChanged } from 'firebase/auth';
+import { Routes, Route } from 'react-router-dom';
+import PaymentSuccess from './components/PaymentSuccess';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -262,6 +264,11 @@ function App() {
 
   if (authLoading) {
     return <div style={{ color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Cargando sesión...</div>;
+  }
+
+  // --- RUTA: PAGO EXITOSO (Prioritaria) ---
+  if (window.location.pathname === '/payment-success') {
+    return <PaymentSuccess />;
   }
 
   if (!user) {

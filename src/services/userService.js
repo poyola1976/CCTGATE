@@ -252,6 +252,48 @@ export const UserService = {
     },
 
     /**
+     * Extiende la licencia de un usuario para un dispositivo específico.
+     * Si la licencia actual es futura, suma meses a partir de ella.
+     * Si ya venció o no existe, suma meses a partir de HOY.
+     */
+    extendUserLicense: async (uid, deviceId, months) => {
+        const db = getDb();
+        const userRef = doc(db, COLLECTION_USERS, uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) throw new Error("USER_NOT_FOUND");
+        const userData = userSnap.data();
+
+        let baseDate = new Date();
+
+        if (userData.deviceAccess && userData.deviceAccess[deviceId]) {
+            const currentExp = userData.deviceAccess[deviceId].expirationDate;
+            if (currentExp) {
+                const currentExpDate = new Date(currentExp.seconds * 1000);
+                // Si la licencia actual aún es válida, sumamos desde el vencimiento
+                if (currentExpDate > baseDate) {
+                    baseDate = currentExpDate;
+                }
+            }
+        }
+
+        const newExpDate = new Date(baseDate);
+        newExpDate.setMonth(newExpDate.getMonth() + months);
+        newExpDate.setHours(23, 59, 59, 999);
+
+        const updateData = {};
+        updateData[`deviceAccess.${deviceId}`] = {
+            startDate: userData.deviceAccess?.[deviceId]?.startDate || new Date(),
+            expirationDate: newExpDate,
+            updatedAt: new Date(),
+            lastPaymentAmount: months === 6 ? 8000 : 10000,
+            lastPaymentPlan: months === 6 ? 'semestral' : 'anual'
+        };
+
+        await updateDoc(userRef, updateData);
+        return newExpDate;
+    },
+    /**
      * Helper para generar/regenerar licencias por defecto.
      * Útil para auto-reparación o inicialización.
      */

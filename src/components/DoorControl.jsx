@@ -381,7 +381,21 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
                         <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                             <button
-                                onClick={() => alert("Redirigiendo a WebPay: Plan 6 Meses ($8.000 + IVA)")}
+                                onClick={async () => {
+                                    try {
+                                        const user = FirebaseService.auth.currentUser;
+                                        const response = await FirebaseService.createPaymentPreference({
+                                            plan: 'semestral',
+                                            userId: user.uid,
+                                            doorId: device.id,
+                                            userEmail: user.email
+                                        });
+
+                                        if (response.data && response.data.init_point) {
+                                            window.location.href = response.data.init_point;
+                                        }
+                                    } catch (e) { alert("Error iniciando pago: " + e.message); }
+                                }}
                                 style={{
                                     ...payBtnStyle,
                                     background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
@@ -391,7 +405,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             >
                                 <div style={{ textAlign: 'left' }}>
                                     <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN SEMESTRAL (6 MESES)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$8.000 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>+ IVA</span></div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$20 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>PROBANDO</span></div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
@@ -399,7 +413,21 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             </button>
 
                             <button
-                                onClick={() => alert("Redirigiendo a WebPay: Plan Anual ($10.000 + IVA)")}
+                                onClick={async () => {
+                                    try {
+                                        const user = FirebaseService.auth.currentUser;
+                                        const response = await FirebaseService.createPaymentPreference({
+                                            plan: 'anual',
+                                            userId: user.uid,
+                                            doorId: device.id,
+                                            userEmail: user.email
+                                        });
+
+                                        if (response.data && response.data.init_point) {
+                                            window.location.href = response.data.init_point;
+                                        }
+                                    } catch (e) { alert("Error iniciando pago: " + e.message); }
+                                }}
                                 style={{
                                     ...payBtnStyle,
                                     background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
@@ -409,7 +437,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             >
                                 <div style={{ textAlign: 'left' }}>
                                     <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN ANUAL (1 AÑO)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$10.000 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>+ IVA</span></div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$20 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>PROBANDO</span></div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />

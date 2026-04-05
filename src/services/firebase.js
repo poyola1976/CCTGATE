@@ -207,6 +207,15 @@ export const FirebaseService = {
         });
     },
 
+    /**
+     * MERCADO PAGO: Crea preferencia de pago
+     */
+    createPaymentPreference: async (paymentData) => {
+        if (!functions) throw new Error("Functions no configurado");
+        const createPrefFn = httpsCallable(functions, 'createPaymentPreference');
+        return await createPrefFn(paymentData);
+    },
+
     getLogsForDoor: async (doorId, limitCount = 20) => {
         if (!db) return [];
         try {
@@ -277,6 +286,19 @@ export const FirebaseService = {
     updateUserPassword: async (user, newPassword) => {
         if (!auth) throw new Error("Auth no configurado");
         return await updatePassword(user, newPassword);
+    },
+
+    /** Leer perfil de usuario completo */
+    getUserData: async (uid) => {
+        if (!db) return null;
+        const userRef = doc(db, 'users', uid);
+        const snap = await getDocs(query(collection(db, 'users'), where('uid', '==', uid)));
+        if (snap.empty) {
+            // Reintento por ID directo de documento
+            const snap2 = await getDocs(query(collection(db, 'users'), where('__name__', '==', uid)));
+            return snap2.empty ? null : snap2.docs[0].data();
+        }
+        return snap.docs[0].data();
     },
 
     logout: async () => {
