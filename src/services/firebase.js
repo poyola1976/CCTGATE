@@ -12,6 +12,7 @@ import {
     addDoc,
     deleteDoc,
     doc,
+    setDoc,
     updateDoc,
     onSnapshot,
     query,
@@ -198,6 +199,25 @@ export const FirebaseService = {
     /**
      * LOGS DE ACCESO
      */
+    getGlobalPricing: async () => {
+        const docRef = doc(db, 'config', 'pricing');
+        const snap = await getDocs(query(collection(db, 'config')));
+        const res = await getDocs(collection(db, 'config'));
+        const pricingDoc = res.docs.find(d => d.id === 'pricing');
+        return pricingDoc ? pricingDoc.data() : { semestral: 8000, anual: 10000 };
+    },
+
+    subscribeToGlobalPricing: (callback) => {
+        if (!db) return () => { };
+        return onSnapshot(doc(db, 'config', 'pricing'), (snap) => {
+            if (snap.exists()) callback(snap.data());
+        });
+    },
+
+    updateGlobalPricing: async (pricingData) => {
+        if (!db) throw new Error("Firebase no configurado");
+        return await setDoc(doc(db, 'config', 'pricing'), pricingData, { merge: true });
+    },
     addAccessLog: async (logData) => {
         if (!db) return;
         // Usamos serverTimestamp() de Firestore para garantizar tipo Timestamp correcto

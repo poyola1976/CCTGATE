@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, getFirestore, collection, getDocs, updateDoc, deleteDoc, query, where, limit } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getFirestore, collection, getDocs, updateDoc, deleteDoc, query, where, limit, onSnapshot } from 'firebase/firestore';
 
 const COLLECTION_USERS = 'users';
 
@@ -106,6 +106,15 @@ export const UserService = {
         const userRef = doc(db, COLLECTION_USERS, uid);
         const userSnap = await getDoc(userRef);
         return userSnap.exists() ? userSnap.data() : null;
+    },
+
+    subscribeToUserProfile: (uid, callback) => {
+        if (!uid) return () => { };
+        const db = getDb();
+        const userRef = doc(db, COLLECTION_USERS, uid);
+        return onSnapshot(userRef, (snap) => {
+            if (snap.exists()) callback(snap.data());
+        });
     },
 
     saveUserProfile: async (uid, data) => {

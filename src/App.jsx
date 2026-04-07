@@ -5,13 +5,15 @@ import DoorControl from './components/DoorControl';
 import LoginScreen from './components/LoginScreen';
 import UserProfileModal from './components/UserProfileModal';
 import AdminUsersScreen from './components/AdminUsersScreen';
+import AdminPricingScreen from './components/AdminPricingScreen';
 import { FirebaseService } from './services/firebase';
 import { UserService } from './services/userService';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useSearchParams } from 'react-router-dom';
 import PaymentSuccess from './components/PaymentSuccess';
 
 function App() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -21,6 +23,21 @@ function App() {
 
   const [devices, setDevices] = useState([]);
   const [cameras, setCameras] = useState([]);
+  const [globalPricing, setGlobalPricing] = useState({ semestral: 8000, anual: 10000 });
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [lastPaymentDate, setLastPaymentDate] = useState(null);
+
+  // 2d. Detección de Pago Exitoso (Vía URL)
+  useEffect(() => {
+    const success = searchParams.get('payment_success');
+    if (success === 'true') {
+      setShowPaymentSuccess(true);
+      // Limpiamos la URL después de un momento para que no salga siempre
+      setTimeout(() => {
+        setSearchParams({});
+      }, 1000);
+    }
+  }, [searchParams]);
 
   // Helper para agrupar
   const groupDevices = (allDevices) => {
@@ -69,23 +86,7 @@ function App() {
           setUserRole(role);
           setUser(currentUser);
 
-          // 2. Cargar Perfil Completo (Vigencias)
-          try {
-            const profile = await UserService.getUserProfile(currentUser.uid);
-            setUserProfile(profile);
-
-            // Compatibilidad legacy: Global Expiration para indicador visual de llave
-            // Compatibilidad legacy: Global Expiration para indicador visual de llave
-            if (role === 'validador' || role === 'admin') {
-              setExpirationDate(null);
-            } else if (profile?.expirationDate?.seconds) {
-              setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
-            } else {
-              setExpirationDate(null);
-            }
-          } catch (e) {
-            console.error("Error checking profile", e);
-          }
+          // Perfil se cargará dinámicamente en el useEffect de Sync
         } catch (e) {
           console.error("Error fetching role", e);
           if (e.message === 'UNAUTHORIZED_REGISTRATION') {
@@ -113,7 +114,29 @@ function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // 2. Sincronización Realtime (Solo si logueado)
+  // 2. Suscripciones en tiempo real (Solo si hay usuario logueado)
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      setExpirationDate(null);
+      return;
+    }
+
+    // 2a. Sincronización del Perfil de Usuario (Vigencias, etc)
+    const unsubProfile = UserService.subscribeToUserProfile(user.uid, (profile) => {
+      setUserProfile(profile);
+      // Actualizar fecha de expiración visual si corresponde
+      if (userRole === 'admin' || userRole === 'validador') {
+        setExpirationDate(null);
+      } else if (profile?.expirationDate?.seconds) {
+        setExpirationDate(new Date(profile.expirationDate.seconds * 1000));
+      } else {
+        setExpirationDate(null);
+      }
+    });
+
+    return () => unsubProfile();
+  }, [user, userRole]);
   useEffect(() => {
     if (!user) {
       setDevices([]);
@@ -141,6 +164,12 @@ function App() {
     if (!user) return;
     const unsub = FirebaseService.subscribeToCameras(setCameras);
     return () => unsub();
+  }, [user]);
+
+  // 2c. Sincronización Precios (Solo si logueado)
+  useEffect(() => {
+    if (!user) return;
+    return FirebaseService.subscribeToGlobalPricing(setGlobalPricing);
   }, [user]);
 
   // 3. Cálculo de Permisos por Dispositivo (REMOVIDO EN REVERT)
@@ -363,6 +392,17 @@ function App() {
                   👥
                 </button>
               )}
+              {userRole === 'admin' && (
+                <button
+                  className="settings-btn"
+                  onClick={() => setCurrentView('pricing')}
+                  aria-label="Precios"
+                  title="Gestión de Tarifas"
+                  style={{ fontSize: '1.2rem', marginLeft: '5px' }}
+                >
+                  💰
+                </button>
+              )}
               <button
                 className="settings-btn"
                 onClick={() => setCurrentView('config')}
@@ -427,9 +467,39 @@ function App() {
           />
         ) : currentView === 'users' && userRole === 'admin' ? (
           <AdminUsersScreen devices={devices} onBack={() => setCurrentView('home')} />
+        ) : currentView === 'pricing' && userRole === 'admin' ? (
+          <AdminPricingScreen onBack={() => setCurrentView('home')} />
         ) : (
           <div className="control-panel">
+            {showPaymentSuccess && (
+              <div className="renewal-modal-overlay">
+                <div className="renewal-modal" style={{ textAlign: 'center', border: '2px solid #2ecc71', animation: 'scaleUp 0.3s' }}>
+                  <div style={{ fontSize: '4em', marginBottom: '10px' }}>✅</div>
+                  <h2 style={{ color: '#2ecc71', marginBottom: '10px' }}>¡Licencia Extendida!</h2>
+                  <p style={{ opacity: 0.8, marginBottom: '20px' }}>
+                    Su pago ha sido procesado con éxito. Su licencia está ahora actualizada y activa.
+                  </p>
+                  <div style={{ background: 'rgba(46,204,113,0.1)', padding: '15px', borderRadius: '15px', marginBottom: '20px' }}>
+                    <span style={{ fontSize: '0.9em', opacity: 0.7 }}>Nueva Vigencia (general):</span><br />
+                    <strong style={{ fontSize: '1.2em' }}>Consultar en lista de accesos</strong>
+                  </div>
+                  <button
+                    onClick={() => setShowPaymentSuccess(false)}
+                    className="pay-btn"
+                    style={{ background: '#2ecc71', width: '100%' }}
+                  >
+                    ¡ENTENDIDO!
+                  </button>
+                </div>
+              </div>
+            )}
             <h1 style={{ marginBottom: '20px' }}>Accesos</h1>
+            <style>{`
+  @keyframes scaleUp {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+`}</style>
 
             {devices.length > 0 ? (
               <div className="doors-grid">
@@ -464,7 +534,8 @@ function App() {
                           isAdmin={userRole === 'admin'}
                           userProfile={userProfile}
                           // Pass associated camera object if exists
-                          camera={cameras.find(c => c.id === device.associatedCameraId)}
+                          camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
+                          globalPricing={globalPricing}
                         />
                       ))}
                     </div>

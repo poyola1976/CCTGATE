@@ -3,17 +3,14 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import fetch from 'node-fetch'; // Aseguramos compatibilidad 2026
 
 dotenv.config();
 
-// --- CONFIGURACIÓN ---
-const POLLING_INTERVAL_MS = 30000; // 30 segundos (Rate Limit Friendly)
-const SHELLY_TIMEOUT_MS = 5000;
-const INTER_DEVICE_DELAY_MS = 2000; // 2 segundos entre peticiones
+const POLLING_INTERVAL_MS = 20000;
+const SHELLY_TIMEOUT_MS = 10000;
+const INTER_DEVICE_DELAY_MS = 1000;
 
-// Inicialización de Firebase
-// NOTA: Se requiere el archivo 'serviceAccountKey.json' en este directorio
-// O las variables de entorno configuradas.
 let db;
 
 try {
@@ -22,162 +19,87 @@ try {
         credential: admin.credential.cert(serviceAccount)
     });
     db = getFirestore();
-    console.log("🔥 Firebase Admin conectado exitosamente.");
+    console.log("🔥 Firebase Admin conectado.");
 } catch (error) {
-    console.error("❌ Error iniciando Firebase Admin. Verifica que 'serviceAccountKey.json' exista.");
-    console.error(error.message);
+    console.error("❌ Error Firebase Admin.");
     process.exit(1);
 }
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Consulta el estado de un dispositivo Shelly a través de la nube
- * Incluye reintento automático para errores 429.
- */
-async function checkShellyStatus(door, retryCount = 0) {
+async function checkShellyStatus(door) {
     if (!door.serverUrl || !door.deviceId || !door.authKey) {
-        return { online: false, error: 'Config incomplète' };
+        return { online: false, error: 'Config incompleta' };
     }
 
-    // Construir URL (Cloud API)
     let baseUrl = door.serverUrl.trim();
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
-    // Normalizar a /device/status
-    let targetUrl;
-    if (baseUrl.toLowerCase().includes('/device/relay/control')) {
-        targetUrl = baseUrl.replace(/\/device\/relay\/control/i, '/device/status');
-    } else {
-        targetUrl = `${baseUrl}/device/status`;
-    }
+    // FORZAMOS EL ENDPOINT DE LA IMAGEN: /device/status
+    let statusUrl = baseUrl.includes('/relay/control')
+        ? baseUrl.replace(/\/relay\/control/i, '/status')
+        : `${baseUrl}/device/status`;
 
-    const params = new URLSearchParams();
-    params.append('id', door.deviceId);
-    params.append('auth_key', door.authKey);
-    params.append('_t', Date.now()); // Anti-cache
-
-    const fullUrl = `${targetUrl}?${params.toString()}`;
-    const formData = new URLSearchParams();
-    formData.append('id', door.deviceId);
-    formData.append('auth_key', door.authKey);
+    // CUERPO EXACTO SEGÚN POSTMAN: x-www-form-urlencoded
+    const body = new URLSearchParams();
+    body.append('id', door.deviceId);
+    body.append('auth_key', door.authKey);
 
     try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), SHELLY_TIMEOUT_MS);
-
-        const response = await fetch(fullUrl, {
+        const response = await fetch(statusUrl, {
             method: 'POST',
-            body: formData,
-            signal: controller.signal,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'AccessControlApp/6.0 (Monitor)' // Header cortés
-            }
+            body: body,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: SHELLY_TIMEOUT_MS
         });
 
-        clearTimeout(timeout);
+        if (!response.ok) return { online: false, error: `HTTP ${response.status}` };
 
-        if (response.status === 429) {
-            // REINTENTO SOFT EN 429
-            if (retryCount < 1) {
-                console.log(`       ⚠️ 429 Detectado en ${door.deviceId}. Reintentando en 2s...`);
-                await delay(2000);
-                return checkShellyStatus(door, retryCount + 1);
-            }
-            return { online: false, error: '⚠️ BUSY (429)' };
-        }
+        const res = await response.json();
 
-        if (!response.ok) {
-            return { online: false, error: `HTTP ${response.status}` };
-        }
-
-        const data = await response.json();
-
-        // Determinar "Online" basado en la respuesta de Shelly Cloud
-        // La API suele devolver "data: { online: true, ... }" o directamente "{ isok: true, data: { ... } }"
+        // --- LÓGICA DE DETECCIÓN EXACTA ---
         let isOnline = false;
-
-        if (data.data && typeof data.data.online !== 'undefined') {
-            isOnline = data.data.online;
-        } else if (data.data && typeof data.data.connected !== 'undefined') {
-            isOnline = data.data.connected;
-        } else {
-            // Fallback: Si responde JSON válido, asumimos que "el servidor responde", 
-            // pero para estar "Online" el dispositivo debe estar conectado a la nube.
-            // Shelly Cloud devuelve { isok: true, data: { online: false } } si el dispositivo está desconectado.
-            isOnline = false;
+        if (res.isok && res.data) {
+            // Buscamos 'online' en la raíz de 'data' o en 'device_status' según el modelo
+            isOnline = res.data.online === true ||
+                res.data.status?.online === true ||
+                res.data.connected === true;
         }
 
-        // Si detectamos isOnline true, forzamos error a null para limpiar cualquier estado previo
         return {
             online: isOnline,
-            ip: data.data?.ip || null,
-            error: null, // IMPORTANTE: Limpiar errores si tuvimos éxito
+            ip: res.data?.device_status?.wifi_sta?.ip || res.data?.wifi_sta?.ip || null,
+            error: res.isok ? (isOnline ? null : 'Reportado Offline por Shelly') : 'Respuesta API Inválida',
             lastSeen: new Date().toISOString()
         };
 
     } catch (error) {
-        return { online: false, error: error.name === 'AbortError' ? 'Timeout' : error.message };
+        return { online: false, error: `Error: ${error.message}` };
     }
 }
 
-// --- BUCLE PRINCIPAL ---
-
 async function runMonitor() {
-    console.log(`\n🔍 Iniciando ciclo de monitoreo... (${new Date().toLocaleTimeString()})`);
-
+    console.log(`\n🔍 Verificando estados... (${new Date().toLocaleTimeString()})`);
     try {
-        const doorsSnapshot = await db.collection('doors').get();
-        if (doorsSnapshot.empty) {
-            console.log("⚠️ No hay puertas configuradas en la base de datos.");
-            return;
-        }
-
-        const updates = [];
-
-        for (const doc of doorsSnapshot.docs) {
+        const snap = await db.collection('doors').get();
+        for (const doc of snap.docs) {
             const door = doc.data();
-            const doorId = doc.id;
-
-            console.log(`   > Verificando: ${door.name || doorId}...`);
-
-            // Petición a Shelly
             const status = await checkShellyStatus(door);
+            console.log(`   > ${door.name || doc.id}: ${status.online ? '✅ ONLINE' : '🔴 OFF'} (${status.error || 'OK'})`);
 
-            // Pausa entre dispositivos para evitar 429 en ráfaga
-            await delay(INTER_DEVICE_DELAY_MS);
-
-            // Logging amigable
-            let logSymbol = status.online ? '✅' : '🔴';
-            if (status.error && status.error.includes('429')) logSymbol = '🟠';
-
-            console.log(`     ${logSymbol} Estado: ${status.online ? 'ONLINE' : 'OFFLINE'} (${status.error || status.ip})`);
-
-            // Preparar actualización en Firestore
-            // Guardamos en un campo 'status' separado para no sobreescribir la config
-            const updatePromise = db.collection('doors').doc(doorId).update({
+            await db.collection('doors').doc(doc.id).update({
                 status: {
                     ...status,
                     lastCheck: admin.firestore.FieldValue.serverTimestamp()
                 }
-            }).catch(err => console.error(`❌ Error actualizando ${door.name}:`, err.message));
-
-            updates.push(updatePromise);
+            });
+            await delay(INTER_DEVICE_DELAY_MS);
         }
-
-        await Promise.all(updates);
-        console.log("💾 Estados actualizados en Firestore.");
-
-    } catch (error) {
-        console.error("💥 Error en el ciclo principal:", error);
+    } catch (e) {
+        console.error("💥 Error en ciclo:", e.message);
     }
-
-    // Programar siguiente ciclo
     setTimeout(runMonitor, POLLING_INTERVAL_MS);
 }
 
-// Arrancar
-console.log("🚀 Door Monitor Service v1.1 (Rate Limit Optimized) Iniciado");
-console.log(`🕒 Intervalo: ${POLLING_INTERVAL_MS / 1000}s | Delay entre puertas: ${INTER_DEVICE_DELAY_MS}ms`);
 runMonitor();
+console.log("🚀 Monitor Shelly v2.2 (Final Fix) Iniciado");

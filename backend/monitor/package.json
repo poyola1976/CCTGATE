@@ -1,7 +1,7 @@
 {
     "name": "door-monitor-service",
-    "version": "1.0.0",
-    "description": "Centralized monitor for Shelly devices",
+    "version": "1.1.0",
+    "description": "Centralized monitor for Shelly Gen 1 and Gen 4 devices",
     "main": "index.js",
     "type": "module",
     "scripts": {
@@ -9,6 +9,7 @@
     },
     "dependencies": {
         "firebase-admin": "^12.0.0",
-        "dotenv": "^16.0.0"
+        "dotenv": "^16.0.0",
+        "node-fetch": "^3.3.0"
     }
 }

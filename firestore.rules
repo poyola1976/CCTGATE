@@ -69,5 +69,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
+    // --- COLECCIÓN DE CONFIGURACIÓN (PRECIOS, ETC) ---
+    match /config/{document} {
+      allow read: if true; // Cualquier usuario puede ver precios (o el backend)
+      allow write: if isAdmin(); // Solo tú puedes editarlos
+    }
   }
 }

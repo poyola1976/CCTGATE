@@ -22,12 +22,32 @@ const mpClient = new MercadoPagoConfig({
 exports.createPaymentPreference = onCall(async (request) => {
     const { plan, userId, doorId, userEmail } = request.data;
     if (!plan || !userId || !doorId) throw new HttpsError("invalid-argument", "Faltan parámetros.");
-    const isAnnual = plan === 'anual';
-    const amount = 20; // PRECIO DE PRUEBA REAL ($20 CLP)
     try {
+        // 1. OBTENER PRECIOS DINÁMICOS
+        // Intentar leer precio específico de la puerta
+        const doorDoc = await db.collection("doors").doc(doorId).get();
+        const doorData = doorDoc.exists ? doorDoc.data() : {};
+
+        // Intentar leer precios globales (Por defecto 8000/10000 si no existe el config)
+        const configDoc = await db.collection("config").doc("pricing").get();
+        const globalPricing = configDoc.exists ? configDoc.data() : { semestral: 8000, anual: 10000 };
+
+        const isAnnual = plan === 'anual';
+        let amount = isAnnual ? globalPricing.anual : globalPricing.semestral;
+
+        // Si la puerta tiene un precio personalizado, lo usamos (vence al global)
+        if (isAnnual && doorData.price_anual) amount = doorData.price_anual;
+        if (!isAnnual && doorData.price_semestral) amount = doorData.price_semestral;
+
         const preference = new Preference(mpClient);
         const body = {
-            items: [{ id: plan, title: `CCTGATE - Plan ${isAnnual ? 'Anual' : 'Semestral'}`, unit_price: amount, quantity: 1, currency_id: 'CLP' }],
+            items: [{
+                id: plan,
+                title: `CCTGATE - Plan ${isAnnual ? 'Anual' : 'Semestral'}`,
+                unit_price: Number(amount),
+                quantity: 1,
+                currency_id: 'CLP'
+            }],
             payer: { email: userEmail || "" },
             external_reference: `${userId}::${doorId}::${plan}`,
             back_urls: {
@@ -150,15 +170,89 @@ exports.checkDoors = onSchedule({
     timeoutSeconds: 60,
     memory: "256MiB"
 }, async (event) => {
-    try {
-        const doorsSnapshot = await db.collection('doors').get();
-        for (const doc of doorsSnapshot.docs) {
-            const door = doc.data();
-            // Lógica de monitoreo Shelly...
-            await db.collection('doors').doc(doc.id).update({ "status.lastCheck": FieldValue.serverTimestamp() });
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // 4 RONDAS DE 15 SEGUNDOS CADA UNA
+    for (let round = 1; round <= 4; round++) {
+        console.log(`🎬 RONDA ${round}/4 - Monitoreo Blindado...`);
+        const startTime = Date.now();
+
+        try {
+            const doorsSnapshot = await db.collection('doors').get();
+            if (doorsSnapshot.empty) break;
+
+            // EJECUCIÓN SECUENCIAL CON PAUSA DE SEGURIDAD (Cura de Rotación)
+            for (const doc of doorsSnapshot.docs) {
+                const door = doc.data();
+                const doorId = doc.id;
+
+                if (!door.serverUrl || !door.deviceId || !door.authKey) continue;
+
+                try {
+                    let baseUrl = door.serverUrl.trim();
+                    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+                    let targetUrl = baseUrl.includes('/relay/control')
+                        ? baseUrl.replace(/\/relay\/control/i, '/status')
+                        : `${baseUrl}/device/status`;
+
+                    const body = new URLSearchParams();
+                    body.append('id', door.deviceId);
+                    body.append('auth_key', door.authKey);
+
+                    const response = await fetch(targetUrl, {
+                        method: 'POST',
+                        body: body,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        timeout: 5000
+                    });
+
+                    const res = await response.json();
+
+                    if (res.isok && res.data) {
+                        const isOnline = res.data.online === true ||
+                            res.data.status?.online === true ||
+                            res.data.connected === true;
+
+                        // SOLO ACTUALIZAMOS SI LA RESPUESTA ES VÁLIDA
+                        await db.collection('doors').doc(doorId).update({
+                            "status.online": isOnline,
+                            "status.ip": res.data?.device_status?.wifi_sta?.ip || res.data?.wifi_sta?.ip || null,
+                            "status.error": isOnline ? null : 'Offline en Shelly Cloud',
+                            "status.lastCheck": FieldValue.serverTimestamp()
+                        });
+                        console.log(`✅ ${door.name || doorId}: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+                    } else {
+                        // SI SHELLY RESPONDE ERROR (ej: 429), NO CAMBIAMOS EL ESTADO ONLINE
+                        await db.collection('doors').doc(doorId).update({
+                            "status.lastCheck": FieldValue.serverTimestamp(),
+                            "status.error": `Shelly API: ${res.message || 'Error'}`
+                        });
+                        console.log(`🟠 ${door.name || doorId}: Saltado (Error de API)`);
+                    }
+
+                } catch (err) {
+                    console.error(`❌ Error en ${doorId}:`, err.message);
+                    // EN CASO DE TIMEOUT O red, manteniendo el timestamp sin cambiar online
+                    await db.collection('doors').doc(doorId).update({
+                        "status.lastCheck": FieldValue.serverTimestamp()
+                    });
+                }
+
+                // --- PAUSA CRÍTICA DE 2 SEGUNDOS ---
+                await sleep(2000);
+            }
+        } catch (e) {
+            console.error("💥 Error en ronda:", e);
         }
-    } catch (e) {
-        console.error("checkDoors error", e);
+
+        // CONTROL DE TIEMPO PARA RONDAS DE 15S
+        const elapsed = Date.now() - startTime;
+        const waitTime = 15000 - elapsed;
+        if (round < 4 && waitTime > 0) {
+            console.log(`⏳ Esperando ráfaga...`);
+            await sleep(waitTime);
+        }
     }
 });
 

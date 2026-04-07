@@ -6,12 +6,15 @@ import { UserService } from '../services/userService';
 import flvjs from 'flv.js';
 import Hls from 'hls.js';
 
-export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera }) {
+export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing }) {
+    // Cálculo de Precios Dinámicos
+    const p_semestral = device.price_semestral || globalPricing?.semestral || 8000;
+    const p_anual = device.price_anual || globalPricing?.anual || 10000;
     // Modo Enterprise: Leemos el estado directamente del objeto device
 
     // Si no hay status reportado aún, asumimos "checking" o desconectado
     let isOnline = device.status?.online === true;
-    let offlineReason = device.status?.error || 'Sin señal del Monitor';
+    let offlineReason = device.status?.error || (device.status?.online === false ? 'Dispositivo Fuera de Línea' : 'Sin señal del Monitor');
 
     // VERIFICACIÓN DE OBSOLESCENCIA (Stale Check)
     if (device.status?.lastCheck?.seconds) {
@@ -19,7 +22,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         const now = new Date();
         const diffSeconds = (now - lastCheckDate) / 1000;
 
-        if (diffSeconds > 300) { // 5 minutos
+        if (diffSeconds > 180) { // Reducido a 3 min para mayor precisión
             isOnline = false;
             offlineReason = `Monitor Detenido (${Math.floor(diffSeconds / 60)} min)`;
         }
@@ -405,7 +408,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             >
                                 <div style={{ textAlign: 'left' }}>
                                     <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN SEMESTRAL (6 MESES)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$20 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>PROBANDO</span></div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>${Number(p_semestral).toLocaleString('es-CL')}</div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
@@ -437,7 +440,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             >
                                 <div style={{ textAlign: 'left' }}>
                                     <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN ANUAL (1 AÑO)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>$20 <span style={{ fontSize: '0.6em', fontWeight: 'normal' }}>PROBANDO</span></div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>${Number(p_anual).toLocaleString('es-CL')}</div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
