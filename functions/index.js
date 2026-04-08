@@ -298,3 +298,43 @@ exports.getTuyaHlsUrl = onCall(async (request) => {
         return { success: false, message: e.message };
     }
 });
+
+/**
+ * 🛰️ WEBHOOK PARA ESCALABILIDAD (Push Logic)
+ * Este endpoint es llamado por las puertas Shelly Gen 2/3/4 en tiempo real.
+ */
+exports.shellyWebhook = onRequest(async (req, res) => {
+    try {
+        const payload = req.body;
+        console.log("📨 Webhook Recibido de Shelly:", JSON.stringify(payload));
+
+        // En Gen 2/3/4 el ID suele venir en 'src' o dentro del objeto
+        const deviceId = payload.src || payload.id || (payload.params && payload.params.id);
+
+        if (!deviceId) return res.status(400).send("Falta ID");
+
+        // Buscamos la puerta por su 'deviceId' (Dato clave)
+        const db = admin.firestore();
+        const doorsSnap = await db.collection('doors')
+            .where('deviceId', '==', deviceId)
+            .limit(1)
+            .get();
+
+        if (!doorsSnap.empty) {
+            const doorDoc = doorsSnap.docs[0];
+
+            // Actualización asíncrona: El dispositivo nos habló, por tanto está Online.
+            await doorDoc.ref.update({
+                "status.online": true,
+                "status.lastWebhook": admin.firestore.FieldValue.serverTimestamp(),
+                "status.error": null
+            });
+            console.log(`✅ Webhook procesado con éxito para: ${deviceId}`);
+        }
+
+        res.status(200).send("OK");
+    } catch (err) {
+        console.error("💥 Error en Webhook:", err);
+        res.status(500).send("Error interno");
+    }
+});

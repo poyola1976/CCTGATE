@@ -12,6 +12,7 @@
   "dependencies": {
     "@mercadopago/sdk-react": "^1.0.7",
     "firebase": "^12.6.0",
+    "firebase-admin": "^13.7.0",
     "flv.js": "^1.6.2",
     "hls.js": "^1.6.15",
     "react": "^19.2.0",

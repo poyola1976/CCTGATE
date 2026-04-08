@@ -20,7 +20,8 @@ import {
     where,
     limit,
     getDocs,
-    serverTimestamp
+    serverTimestamp,
+    connectFirestoreEmulator
 } from 'firebase/firestore';
 import {
     getAuth,
@@ -34,9 +35,10 @@ import {
     sendEmailVerification,
     updatePassword,
     reauthenticateWithCredential,
-    EmailAuthProvider
+    EmailAuthProvider,
+    connectAuthEmulator
 } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
 
 // --- CONFIGURACIÓN DE FIREBASE (¡REEMPLAZA ESTO!) ---
 const firebaseConfig = {
@@ -61,6 +63,15 @@ try {
     db = getFirestore(app);
     auth = getAuth(app);
     functions = getFunctions(app);
+
+    // --- CONEXIÓN A EMULADORES (Modo Local) ---
+    if (typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+        console.log("🛠️ CONECTANDO A EMULADORES LOCALES...");
+        connectFirestoreEmulator(db, '127.0.0.1', 8180);
+        connectAuthEmulator(auth, 'http://127.0.0.1:9199');
+        connectFunctionsEmulator(functions, '127.0.0.1', 5101);
+    }
 } catch (e) {
     console.error("🔥 CRITICAL FIREBASE ERROR:", e);
     // Alerting in console isn't enough for the user, but we will catch 'auth' being null later.
