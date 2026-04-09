@@ -13,7 +13,7 @@ const db = getFirestore();
 
 // CONFIGURACIÓN DE MERCADO PAGO (VERSIÓN ESTABLE 5 DE ABRIL)
 const mpClient = new MercadoPagoConfig({
-    accessToken: "APP_USR-963547969533010-040219-ce265fa18c447be6cb21601a08a202bd-315720244",
+    accessToken: process.env.MP_ACCESS_TOKEN || "TU_TOKEN_AQUI", // Se configurará vía Firebase Secrets
     options: { timeout: 5000 }
 });
 
@@ -58,7 +58,7 @@ exports.mercadopagoWebhook = onRequest(async (req, res) => {
         const paymentId = data.id;
         try {
             const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-                headers: { "Authorization": `Bearer APP_USR-963547969533010-040219-ce265fa18c447be6cb21601a08a202bd-315720244` }
+                headers: { "Authorization": `Bearer ${process.env.MP_ACCESS_TOKEN}` }
             });
             const paymentData = await paymentRes.json();
             if (paymentData.status === 'approved') {
