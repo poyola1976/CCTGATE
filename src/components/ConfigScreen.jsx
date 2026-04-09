@@ -19,6 +19,7 @@ export default function ConfigScreen({
         serverUrl: 'https://shelly-112-eu.shelly.cloud',
         deviceId: '',
         authKey: '',
+        generation: 'gen4', // 'gen1' | 'gen4'
         allowedEmails: [], // Changed to Array
         associatedCameraId: ''
     });
@@ -192,6 +193,7 @@ export default function ConfigScreen({
             authKey: device.authKey,
             allowedEmails: Array.isArray(device.allowedEmails) ? device.allowedEmails : (device.allowedEmails ? [device.allowedEmails] : []), // Force Array
             associatedCameraId: device.associatedCameraId || '',
+            generation: device.generation || 'gen1', // Se prioriza el dato de la base
             customImage: device.customImage || '' // Load existing image
         });
         setEditingId(device.id);
@@ -208,6 +210,7 @@ export default function ConfigScreen({
             authKey: '',
             allowedEmails: [],
             associatedCameraId: '',
+            generation: 'gen4',
             customImage: '' // New Image Field
         });
         setNewEmail('');
@@ -310,6 +313,7 @@ export default function ConfigScreen({
             deviceId: formData.deviceId,
             authKey: formData.authKey,
             allowedEmails: emailsArray,
+            generation: formData.generation || 'gen1',
             associatedCameraId: formData.associatedCameraId,
             customImage: formData.customImage || '' // Save image (base64)
         };
@@ -564,6 +568,20 @@ export default function ConfigScreen({
                                         style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #444', background: '#2a2a2a', color: 'white', boxSizing: 'border-box' }}
                                     />
                                     <datalist id="group-suggestions">{[...new Set(devices.map(d => d.group).filter(Boolean))].map(g => <option key={g} value={g} />)}</datalist>
+                                </div>
+
+                                <div style={{ marginBottom: '15px' }}>
+                                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9em', color: '#ccc' }}>Generación Shelly</label>
+                                    <select
+                                        name="generation"
+                                        value={formData.generation}
+                                        onChange={handleChange}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#2a2a2a', color: 'white', border: '1px solid #444' }}
+                                    >
+                                        <option value="gen1">Shelly Gen 1 (Legacy / 8 Chars ID)</option>
+                                        <option value="gen4">Shelly Gen 2/3/4 (Moderno / RPC / 12 Chars ID)</option>
+                                    </select>
+                                    <small style={{ color: '#888' }}>Gen 1 usa /relay/control. Gen 2+ usa comunicación RPC (más precisa).</small>
                                 </div>
 
                                 <div style={{ marginBottom: '15px' }}>

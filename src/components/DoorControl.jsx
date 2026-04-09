@@ -45,6 +45,11 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const videoRef = useRef(null);
     const playerRef = useRef(null);
 
+    // --- LÓGICA DE AHORRO DE DATOS (AUTO-TIMEOUT) ---
+    const [isTimedOut, setIsTimedOut] = useState(false);
+    const [timeLeft, setTimeLeft] = useState(60);
+    const timeoutRef = useRef(null);
+
     const [showLogs, setShowLogs] = useState(false);
     const [logs, setLogs] = useState([]);
     const [showUsers, setShowUsers] = useState(false);
@@ -138,8 +143,30 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         setShowUsers(!showUsers);
     };
 
+    // --- MANEJO DEL CONTADOR DE AHORRO ---
     useEffect(() => {
-        if (showCamera && camera && camera.type === 'rtmp') {
+        if (!showCamera) {
+            setIsTimedOut(false);
+            setTimeLeft(60);
+            if (timeoutRef.current) clearInterval(timeoutRef.current);
+        } else if (streamStatus === 'playing' && !isTimedOut) {
+            if (timeoutRef.current) clearInterval(timeoutRef.current);
+            timeoutRef.current = setInterval(() => {
+                setTimeLeft(prev => {
+                    if (prev <= 1) {
+                        clearInterval(timeoutRef.current);
+                        setIsTimedOut(true);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+        return () => { if (timeoutRef.current) clearInterval(timeoutRef.current); };
+    }, [showCamera, streamStatus, isTimedOut]);
+
+    useEffect(() => {
+        if (showCamera && !isTimedOut && camera && camera.type === 'rtmp') {
             const port = 8443;
             const serverDomain = 'cctgate.i2r.cl';
             const streamKey = camera.rtmpStreamKey || 'cam1';
@@ -200,12 +227,15 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             }
         }
         return () => {
-            if (playerRef.current && playerRef.current.destroy) playerRef.current.destroy();
+            if (playerRef.current && playerRef.current.destroy) {
+                playerRef.current.destroy();
+                playerRef.current = null;
+            }
         };
-    }, [showCamera, camera]);
+    }, [showCamera, camera, isTimedOut]);
 
     useEffect(() => {
-        if (showCamera && camera && camera.type === 'tuya') {
+        if (showCamera && !isTimedOut && camera && camera.type === 'tuya') {
             let hls = null;
             const initHls = async () => {
                 setStreamStatus('loading');
@@ -232,7 +262,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             initHls();
             return () => { if (hls) hls.destroy(); };
         }
-    }, [showCamera, camera]);
+    }, [showCamera, camera, isTimedOut]);
 
     return (
         <div className="door-control-card" style={{
@@ -334,12 +364,43 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             {/* SECCIONES EXPANDIBLES */}
             {showCamera && camera && (
                 <div style={camAreaStyle}>
+                    {/* OVERLAY DE TIMEOUT (AHORRO) */}
+                    {isTimedOut && (
+                        <div style={timeoutOverlayStyle}>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: '2em', marginBottom: '10px' }}>🛑</div>
+                                <div style={{ fontSize: '0.9em', color: '#fff', marginBottom: '15px', fontWeight: 'bold' }}>
+                                    VIDEO DETENIDO POR SESIÓN<br />
+                                    <span style={{ fontSize: '0.8em', color: '#aaa' }}>(Ahorro de datos activo)</span>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setIsTimedOut(false);
+                                        setTimeLeft(60);
+                                    }}
+                                    style={resumeBtnStyle}
+                                >
+                                    ▶️ REANUDAR VIDEO
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     <div style={camStatusStyle(streamStatus)}>
                         <span style={dotStyle(streamStatus)}></span>
-                        {streamStatus === 'playing' ? 'LIVE STREAM' : (streamStatus === 'loading' ? 'CONECTANDO...' : 'OFFLINE')}
+                        {streamStatus === 'playing'
+                            ? `LIVE • 00:${timeLeft.toString().padStart(2, '0')}`
+                            : (streamStatus === 'loading' ? 'CONECTANDO...' : 'OFFLINE')}
                     </div>
                     {streamStatus === 'error' && <div style={errAreaStyle}>{streamError}</div>}
-                    <video ref={videoRef} controls autoPlay muted playsInline style={{ width: '100%', height: '100%', display: streamStatus === 'playing' ? 'block' : 'none' }} />
+                    <video
+                        ref={videoRef}
+                        controls={false}
+                        autoPlay
+                        muted
+                        playsInline
+                        style={{ width: '100%', height: '100%', display: (streamStatus === 'playing' && !isTimedOut) ? 'block' : 'none', objectFit: 'contain' }}
+                    />
                 </div>
             )}
 
@@ -539,4 +600,18 @@ const badgeStyle = {
     zIndex: 10
 };
 const logsAreaStyle = { marginTop: '15px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' };
+
+const timeoutOverlayStyle = {
+    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+    background: 'rgba(0,0,0,0.85)', zIndex: 20, display: 'flex',
+    alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
+};
+
+const resumeBtnStyle = {
+    background: '#e67e22', border: 'none', color: 'white',
+    padding: '10px 20px', borderRadius: '25px', cursor: 'pointer',
+    fontWeight: 'bold', boxShadow: '0 0 20px rgba(230, 126, 34, 0.4)',
+    fontSize: '0.9em'
+};
+
 const errAreaStyle = { textAlign: 'center', color: '#e74c3c', fontSize: '0.8em' };

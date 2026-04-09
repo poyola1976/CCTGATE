@@ -332,6 +332,12 @@ export const FirebaseService = {
         return snap.docs[0].data();
     },
 
+    forceCheckDevice: async (doorId) => {
+        if (!functions) throw new Error("Functions no configurado");
+        const checkFn = httpsCallable(functions, 'forceCheckDevice');
+        return await checkFn({ doorId });
+    },
+
     logout: async () => {
         if (!auth) throw new Error("Auth no configurado");
         return await signOut(auth);
