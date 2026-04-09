@@ -1,42 +1,53 @@
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require('firebase-admin');
-const { FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const CryptoJS = require("crypto-js");
 const fetch = require('node-fetch');
+const { MercadoPagoConfig, Preference } = require('mercadopago');
 
-admin.initializeApp();
-const db = admin.firestore();
+if (admin.apps.length === 0) {
+    admin.initializeApp();
+}
+const db = getFirestore();
 
-// --- FUNCIONES DE PAGO (MERCADO PAGO) ---
+// CONFIGURACIÓN DE MERCADO PAGO (VERSIÓN ESTABLE 5 DE ABRIL)
+const mpClient = new MercadoPagoConfig({
+    accessToken: "APP_USR-963547969533010-040219-ce265fa18c447be6cb21601a08a202bd-315720244",
+    options: { timeout: 5000 }
+});
+
+// --- MERCADO PAGO: GENERAR PREFERENCIA ---
 exports.createPaymentPreference = onCall(async (request) => {
     const { plan, userId, doorId, userEmail } = request.data;
-    const amount = plan === 'anual' ? 10000 : 8000;
-    const title = `Licencia Acceso - ${plan === 'anual' ? 'Anual' : 'Semestral'}`;
+    if (!plan || !userId || !doorId) throw new HttpsError("invalid-argument", "Faltan parámetros.");
+
+    const isAnnual = plan === 'anual';
+    const amount = isAnnual ? 30000 : 25000;
 
     try {
-        const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${process.env.MP_ACCESS_TOKEN || 'APP_USR-7822997103734484-010515-538622c4f42ce0d7f35368a19266f8ba-233772274'}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                items: [{ title, quantity: 1, unit_price: amount, currency_id: "CLP" }],
+        const preference = new Preference(mpClient);
+        const result = await preference.create({
+            body: {
+                items: [{
+                    title: `Licencia CCTGATE - Plan ${isAnnual ? 'Anual' : 'Semestral'}`,
+                    unit_price: amount,
+                    quantity: 1,
+                    currency_id: 'CLP'
+                }],
                 back_urls: {
                     success: "https://api-gate-af1a9.web.app/payment-success",
                     failure: "https://api-gate-af1a9.web.app/payment-failure",
                     pending: "https://api-gate-af1a9.web.app/payment-pending"
                 },
                 auto_return: "approved",
-                notification_url: "https://mercadopagowebhook-j7itn73n4a-uc.a.run.app",
                 external_reference: `${userId}|${doorId}|${plan}`
-            })
+            }
         });
 
-        const data = await response.json();
-        return { success: true, init_point: data.init_point };
+        return { success: true, init_point: result.init_point };
     } catch (e) {
+        console.error("💥 Error MP SDK:", e);
         throw new HttpsError('internal', e.message);
     }
 });
@@ -47,7 +58,7 @@ exports.mercadopagoWebhook = onRequest(async (req, res) => {
         const paymentId = data.id;
         try {
             const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-                headers: { "Authorization": `Bearer APP_USR-7822997103734484-010515-538622c4f42ce0d7f35368a19266f8ba-233772274` }
+                headers: { "Authorization": `Bearer APP_USR-963547969533010-040219-ce265fa18c447be6cb21601a08a202bd-315720244` }
             });
             const paymentData = await paymentRes.json();
             if (paymentData.status === 'approved') {
@@ -111,7 +122,7 @@ exports.forceCheckDevice = onCall(async (request) => {
             method: 'POST',
             body: body,
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 4000 // Aún más agresivo: 4s
+            timeout: 4000
         });
 
         let isOnline = false;
@@ -122,7 +133,6 @@ exports.forceCheckDevice = onCall(async (request) => {
             }
         }
 
-        // ACTUALIZACIÓN SINCERA: Lo que diga la API se graba.
         await db.collection('doors').doc(doorId).update({
             "status.online": isOnline,
             "status.error": isOnline ? null : 'Offline o sin respuesta',
@@ -204,12 +214,7 @@ exports.checkDoors = onSchedule({
 });
 
 exports.verifyTuyaCredentials = onCall(async (request) => {
-    const { deviceId, accessId, accessSecret } = request.data;
-    const t = Date.now().toString();
-    try {
-        // Implementación simplificada para el ejemplo
-        return { success: true, online: true };
-    } catch (e) { return { success: false }; }
+    return { success: true, online: true };
 });
 
 exports.getTuyaHlsUrl = onCall(async (request) => {

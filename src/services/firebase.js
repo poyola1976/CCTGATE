@@ -85,6 +85,9 @@ const COLLECTION_NAME = 'doors';
 const LOGS_COLLECTION = 'access_logs';
 
 export const FirebaseService = {
+    auth,
+    db,
+    functions,
     /**
      * Suscribirse a cambios en tiempo real (Sync)
      * @param {function} callback - Función que recibe el array de puertas actualizado
@@ -336,6 +339,12 @@ export const FirebaseService = {
         if (!functions) throw new Error("Functions no configurado");
         const checkFn = httpsCallable(functions, 'forceCheckDevice');
         return await checkFn({ doorId });
+    },
+
+    createPaymentPreference: async (data) => {
+        if (!functions) throw new Error("Functions no configurado");
+        const createPref = httpsCallable(functions, 'createPaymentPreference');
+        return await createPref(data);
     },
 
     logout: async () => {

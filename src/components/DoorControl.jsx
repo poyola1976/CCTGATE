@@ -54,6 +54,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const [logs, setLogs] = useState([]);
     const [showUsers, setShowUsers] = useState(false);
     const [showLicenseModal, setShowLicenseModal] = useState(false);
+    const [payingPlan, setPayingPlan] = useState(null); // 'semestral', 'anual' o null
 
     const [authorizedUsersData, setAuthorizedUsersData] = useState({});
 
@@ -439,26 +440,39 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                                 {licenseInfo.statusText.toUpperCase()}
                             </div>
                             <div style={{ fontSize: '0.85em', color: '#888', marginTop: '10px' }}>
-                                {licenseInfo.daysLeft > 365 ? 'Acceso Permanente' : (licenseInfo.daysLeft <= 0 ? 'Expiró' : `Restan ${licenseInfo.daysLeft} días de acceso`)}
+                                {licenseInfo.daysLeft > 3650 ? 'Acceso Permanente' : (licenseInfo.daysLeft <= 0 ? 'Expiró' : `Restan ${licenseInfo.daysLeft} días de acceso`)}
                             </div>
                         </div>
 
                         <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                             <button
+                                disabled={!!payingPlan}
                                 onClick={async () => {
+                                    setPayingPlan('semestral');
                                     try {
-                                        const user = FirebaseService.auth.currentUser;
+                                        const user = FirebaseService.auth.currentUser || userProfile;
+                                        if (!user || (!user.uid && !user.id)) {
+                                            throw new Error("No se detectó sesión activa. Por favor, reingresa.");
+                                        }
+
                                         const response = await FirebaseService.createPaymentPreference({
                                             plan: 'semestral',
-                                            userId: user.uid,
+                                            userId: user.uid || user.id,
                                             doorId: device.id,
                                             userEmail: user.email
                                         });
 
                                         if (response.data && response.data.init_point) {
                                             window.location.href = response.data.init_point;
+                                        } else {
+                                            throw new Error("No se pudo generar el link de pago.");
                                         }
-                                    } catch (e) { alert("Error iniciando pago: " + e.message); }
+                                    } catch (e) {
+                                        console.error("Payment Error:", e);
+                                        alert("❌ Error: " + (e.message || "Error al conectar con Mercado Pago"));
+                                    } finally {
+                                        setPayingPlan(null);
+                                    }
                                 }}
                                 style={{
                                     ...payBtnStyle,
@@ -468,8 +482,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                                 }}
                             >
                                 <div style={{ textAlign: 'left' }}>
-                                    <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN SEMESTRAL (6 MESES)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>${Number(p_semestral).toLocaleString('es-CL')}</div>
+                                    <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>
+                                        {payingPlan === 'semestral' ? 'GENERANDO LINK...' : 'PLAN SEMESTRAL (6 MESES)'}
+                                    </div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                                        ${Number(p_semestral).toLocaleString('es-CL')}
+                                    </div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
@@ -477,20 +495,32 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             </button>
 
                             <button
+                                disabled={!!payingPlan}
                                 onClick={async () => {
+                                    setPayingPlan('anual');
                                     try {
-                                        const user = FirebaseService.auth.currentUser;
+                                        const user = FirebaseService.auth.currentUser || userProfile;
+                                        if (!user || (!user.uid && !user.id)) {
+                                            throw new Error("Sesión no detectada.");
+                                        }
+
                                         const response = await FirebaseService.createPaymentPreference({
                                             plan: 'anual',
-                                            userId: user.uid,
+                                            userId: user.uid || user.id,
                                             doorId: device.id,
                                             userEmail: user.email
                                         });
 
                                         if (response.data && response.data.init_point) {
                                             window.location.href = response.data.init_point;
+                                        } else {
+                                            throw new Error("Link de pago no generado.");
                                         }
-                                    } catch (e) { alert("Error iniciando pago: " + e.message); }
+                                    } catch (e) {
+                                        alert("❌ Error: " + (e.message || "Fallo en pasarela de pagos"));
+                                    } finally {
+                                        setPayingPlan(null);
+                                    }
                                 }}
                                 style={{
                                     ...payBtnStyle,
@@ -500,8 +530,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                                 }}
                             >
                                 <div style={{ textAlign: 'left' }}>
-                                    <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>PLAN ANUAL (1 AÑO)</div>
-                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>${Number(p_anual).toLocaleString('es-CL')}</div>
+                                    <div style={{ fontSize: '0.8em', opacity: 0.9, letterSpacing: '1px', fontWeight: 'bold' }}>
+                                        {payingPlan === 'anual' ? 'GENERANDO LINK...' : 'PLAN ANUAL (1 AÑO)'}
+                                    </div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: '900', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                                        ${Number(p_anual).toLocaleString('es-CL')}
+                                    </div>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 0 24 24" width="32px" fill="white" style={{ marginLeft: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>
                                     <path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.37-.66-.11-1.48-.87-1.48H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.33 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 5h12.15l-2.76 5H8.53L6.16 5zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
