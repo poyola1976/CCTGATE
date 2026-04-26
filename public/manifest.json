@@ -1,20 +1,30 @@
 {
-    "name": "Control de Acceso",
-    "short_name": "Acceso",
-    "start_url": ".",
+    "name": "CCTGATE - Control de Accesos",
+    "short_name": "CCTGATE",
+    "description": "Sistema inteligente de control de accesos y monitoreo CCTV",
+    "start_url": "/",
+    "scope": "/",
     "display": "standalone",
-    "background_color": "#121212",
-    "theme_color": "#000000",
+    "orientation": "portrait",
+    "background_color": "#1a1a2e",
+    "theme_color": "#2ecc71",
+    "categories": [
+        "security",
+        "business",
+        "utilities"
+    ],
     "icons": [
         {
-            "src": "/favicon.png",
+            "src": "/icon-192.png",
             "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any maskable"
         },
         {
-            "src": "/favicon.png",
+            "src": "/icon-512.png",
             "sizes": "512x512",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any maskable"
         }
     ]
 }

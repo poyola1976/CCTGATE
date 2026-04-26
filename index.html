@@ -1,18 +1,49 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="apple-touch-icon" href="/favicon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  
+  <!-- SEO & App Identity -->
+  <title>CCTGATE - Control de Accesos</title>
+  <meta name="description" content="Sistema inteligente de control de accesos y monitoreo CCTV. Abre puertas, gestiona licencias y visualiza cámaras desde tu dispositivo." />
+  
+  <!-- PWA: Manifest & Theme -->
   <link rel="manifest" href="/manifest.json" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Control de Acceso</title>
+  <meta name="theme-color" content="#2ecc71" />
+  
+  <!-- PWA: Icons -->
+  <link rel="icon" type="image/png" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icon-512.png" />
+  
+  <!-- PWA: iOS Specific -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CCTGATE" />
+  
+  <!-- PWA: Android/Windows -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="application-name" content="CCTGATE" />
+  
+  <!-- PWA: Splash Screen color (iOS) -->
+  <meta name="msapplication-TileColor" content="#1a1a2e" />
 </head>
 
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
+  
+  <!-- PWA: Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('✅ CCTGATE SW registrado:', reg.scope))
+          .catch(err => console.warn('⚠️ SW error:', err));
+      });
+    }
+  </script>
 </body>
 
 </html>

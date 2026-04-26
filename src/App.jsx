@@ -360,25 +360,31 @@ function App() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '10px 20px',
-        background: 'rgba(0,0,0,0.2)'
+        padding: '8px 10px',
+        background: 'rgba(0,0,0,0.3)',
+        flexWrap: 'wrap',
+        gap: '6px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        backdropFilter: 'blur(10px)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: '0 1 auto' }}>
           {user.photoURL ?
-            <img src={user.photoURL} alt="User" style={{ width: '32px', borderRadius: '50%' }} /> :
-            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>👤</div>
+            <img src={user.photoURL} alt="User" style={{ width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0 }} /> :
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '0.8em' }}>👤</div>
           }
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.2' }}>
-            <span style={{ fontSize: '0.9em', fontWeight: 'bold' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2', minWidth: 0 }}>
+            <span style={{ fontSize: '0.8em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user.displayName?.split(' ')[0] || user.email.split('@')[0]}
             </span>
-            <span style={{ fontSize: '0.7em', color: userRole === 'admin' ? '#f39c12' : '#ccc' }}>
-              {userRole === 'admin' ? 'ADMINISTRADOR' : 'Usuario'}
+            <span style={{ fontSize: '0.6em', color: userRole === 'admin' ? '#f39c12' : '#ccc' }}>
+              {userRole === 'admin' ? 'ADMIN' : 'Usuario'}
             </span>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {currentView === 'home' && (userRole === 'admin' || userRole === 'validador') && (
             <>
               {userRole === 'admin' && (
@@ -420,26 +426,23 @@ function App() {
             onClick={() => setShowProfileModal(true)}
             style={{
               background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.3)',
-              fontSize: '0.8em',
-              padding: '5px 10px',
+              border: '1px solid rgba(255,255,255,0.2)',
+              fontSize: '0.75em',
+              padding: '4px 8px',
               borderRadius: '4px',
-              color: '#ddd',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px'
+              color: '#ddd'
             }}
           >
-            👤 <span style={{ display: 'none', '@media (min-width: 400px)': { display: 'inline' } }}>Perfil</span>
+            👤
           </button>
 
           <button
             onClick={handleLogout}
             style={{
               background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.3)',
-              fontSize: '0.8em',
-              padding: '5px 10px',
+              border: '1px solid rgba(255,255,255,0.2)',
+              fontSize: '0.75em',
+              padding: '4px 8px',
               borderRadius: '4px',
               color: '#ddd'
             }}

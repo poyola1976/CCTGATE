@@ -18,7 +18,7 @@ const mpClient = new MercadoPagoConfig({
 });
 
 // --- MERCADO PAGO: GENERAR PREFERENCIA ---
-exports.createPaymentPreference = onCall(async (request) => {
+exports.createPaymentPreference = onCall({ secrets: ["MP_ACCESS_TOKEN"] }, async (request) => {
     const { plan, userId, doorId, userEmail } = request.data;
     if (!plan || !userId || !doorId) throw new HttpsError("invalid-argument", "Faltan parámetros.");
 
@@ -52,7 +52,7 @@ exports.createPaymentPreference = onCall(async (request) => {
     }
 });
 
-exports.mercadopagoWebhook = onRequest(async (req, res) => {
+exports.mercadopagoWebhook = onRequest({ secrets: ["MP_ACCESS_TOKEN"] }, async (req, res) => {
     const { type, data } = req.body;
     if (type === 'payment') {
         const paymentId = data.id;
