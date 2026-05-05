@@ -4,75 +4,83 @@ service cloud.firestore {
 
     // --- FUNCIONES AUXILIARES ---
     
-    // Verificar si el usuario es administrador
     function isAdmin() {
       return request.auth != null && 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Verificar si el usuario es validador
     function isValidator() {
       return request.auth != null && 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'validador';
     }
 
-    // Verificar si el usuario está autenticado
+    // Validador asignado A ESTA puerta específica
+    function isValidatorForDoor() {
+      return isValidator() &&
+             'validatorEmails' in resource.data &&
+             request.auth.token.email in resource.data.validatorEmails;
+    }
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Verificar si el usuario es dueño del documento (para logs/perfil)
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
     // --- COLECCIONES ---
 
-    // 1. Usuarios: 
-    // - Admin ve y edita todo.
-    // - Usuario ve y edita SU propio perfil.
+    // 1. Usuarios:
+    // - Admin: Control total.
+    // - Validador: Lee todos (necesita ver status de licencia de sus usuarios).
+    // - Usuario: Solo su propio perfil.
     match /users/{userId} {
-      allow read: if isAdmin() || isOwner(userId);
+      allow read: if isAdmin() || isValidator() || isOwner(userId);
       allow create, update: if isAdmin() || isOwner(userId);
       allow delete: if (isAdmin() || isOwner(userId)) && resource.data.role != 'admin';
     }
 
     // 2. Puertas (Devices):
     // - Admin: Control total.
-    // - Validador: Puede EDITAR (update), pero NO crear ni eliminar.
-    // - Usuario: Solo lectura SI su email está en 'allowedEmails'.
+    // - Validador: 
+    //     READ: Si su email está en allowedEmails O en validatorEmails.
+    //     UPDATE: Solo si su email está en validatorEmails de esa puerta.
+    // - Usuario: Solo lectura si su email está en 'allowedEmails'.
     match /doors/{doorId} {
-      allow read: if isAdmin() || isValidator() || (isAuthenticated() && request.auth.token.email in resource.data.allowedEmails);
-      allow update: if isAdmin() || isValidator();
+      allow read: if isAdmin() || 
+                   (isAuthenticated() && 
+                    (request.auth.token.email in resource.data.get('allowedEmails', []) ||
+                     ('validatorEmails' in resource.data && 
+                      request.auth.token.email in resource.data.validatorEmails)));
+      allow update: if isAdmin() || isValidatorForDoor();
       allow create, delete: if isAdmin();
     }
 
     // 3. Logs de Acceso:
-    // - Admin: Ve todo.
-    // - Usuario: Crea logs y ve los logs de la puerta SI tiene acceso a ella.
     match /access_logs/{logId} {
-      allow read: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/doors/$(resource.data.doorId)).data.allowedEmails.hasAny([request.auth.token.email]));
+      allow read: if isAdmin() || isValidator() ||
+                   (isAuthenticated() && 
+                    get(/databases/$(database)/documents/doors/$(resource.data.doorId)).data.allowedEmails.hasAny([request.auth.token.email]));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
     }
 
-    // 4. Configuración Global (Settings):
-    // - Admin: Lee y escribe.
-    // - Usuario: Solo lee (para saber duración de licencias).
+    // 4. Settings:
     match /settings/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
+
     // 5. Cámaras CCTV:
-    // - Admin: Lee y escribe.
-    // - Usuario: Lee todo (para simplificar sync), pero solo usa las asignadas.
     match /cameras/{cameraId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
-    // --- COLECCIÓN DE CONFIGURACIÓN (PRECIOS, ETC) ---
+
+    // 6. Configuración global (precios, etc):
     match /config/{document} {
-      allow read: if true; // Cualquier usuario puede ver precios (o el backend)
-      allow write: if isAdmin(); // Solo tú puedes editarlos
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }

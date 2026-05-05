@@ -145,6 +145,21 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
+    const handleChangeRole = async (uid, email, currentRole) => {
+        const newRole = currentRole === 'validador' ? 'user' : 'validador';
+        const roleLabel = newRole === 'validador' ? 'VALIDADOR' : 'USUARIO NORMAL';
+        if (!window.confirm(`Cambiar el rol de ${email} a ${roleLabel}?\n\nRecuerda asignar el validador a la puerta correspondiente desde Configuracion.`)) return;
+        try {
+            const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+            const db = getFirestore();
+            await updateDoc(doc(db, 'users', uid), { role: newRole });
+            alert(`Rol de ${email} actualizado a ${roleLabel}`);
+            await loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    };
+
     if (loading) return <div style={{ padding: '20px', color: '#fff', textAlign: 'center' }}>Cargando usuarios...</div>;
 
     // Construir lista de accesos activos
@@ -159,7 +174,8 @@ export default function AdminUsersScreen({ devices, onBack }) {
                         email: u.email || 'Sin email',
                         doorId: dId,
                         doorName: door.name,
-                        expiration: u.deviceAccess[dId].expirationDate
+                        expiration: u.deviceAccess[dId].expirationDate,
+                        role: u.role || 'user'
                     });
                 }
             });
@@ -400,10 +416,29 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
                                         <div style={{ minWidth: 0, flex: 1 }}>
-                                            <div style={{ fontSize: '0.85em', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{auth.email}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                <div style={{ fontSize: '0.85em', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis' }}>{auth.email}</div>
+                                                <button
+                                                    onClick={() => handleChangeRole(auth.uid, auth.email, auth.role)}
+                                                    title="Clic para cambiar rol"
+                                                    style={{
+                                                        background: auth.role === 'validador' ? 'rgba(243,156,18,0.2)' : 'rgba(255,255,255,0.08)',
+                                                        border: '1px solid ' + (auth.role === 'validador' ? '#f39c12' : 'rgba(255,255,255,0.2)'),
+                                                        color: auth.role === 'validador' ? '#f39c12' : '#777',
+                                                        padding: '1px 7px',
+                                                        borderRadius: '10px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.65em',
+                                                        fontWeight: 'bold',
+                                                        flexShrink: 0
+                                                    }}
+                                                >
+                                                    {auth.role === 'validador' ? 'Validador' : 'Usuario'}
+                                                </button>
+                                            </div>
                                             <div style={{ fontSize: '0.75em', color: '#888', marginTop: '2px' }}>{auth.doorName}</div>
                                             <div style={{ fontSize: '0.7em', marginTop: '4px', color: isExpired ? '#e74c3c' : '#2ecc71' }}>
-                                                {expDate ? (isExpired ? `⛔ Venció ${expDate.toLocaleDateString()}` : `✅ ${daysLeft} días restantes`) : 'N/A'}
+                                                {expDate ? (isExpired ? `Vencio ${expDate.toLocaleDateString()}` : `${daysLeft} dias restantes`) : 'N/A'}
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>

@@ -16,6 +16,7 @@ export default function ConfigScreen({
         deviceId: '',
         authKey: '',
         allowedEmails: [],
+        validatorEmails: [],
         associatedCameraId: '',
         generation: 'gen4',
         grantDays: 0,
@@ -23,6 +24,7 @@ export default function ConfigScreen({
     });
 
     const [newEmail, setNewEmail] = useState('');
+    const [newValidatorEmail, setNewValidatorEmail] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
     // Tab activo: 'doors' | 'cameras'
@@ -73,6 +75,7 @@ export default function ConfigScreen({
             deviceId: device.deviceId,
             authKey: device.authKey,
             allowedEmails: Array.isArray(device.allowedEmails) ? device.allowedEmails : (device.allowedEmails ? [device.allowedEmails] : []),
+            validatorEmails: Array.isArray(device.validatorEmails) ? device.validatorEmails : [],
             associatedCameraId: device.associatedCameraId || '',
             generation: device.generation || 'gen1',
             grantDays: device.grantDays ?? 0,
@@ -91,12 +94,14 @@ export default function ConfigScreen({
             deviceId: '',
             authKey: '',
             allowedEmails: [],
+            validatorEmails: [],
             associatedCameraId: '',
             generation: 'gen4',
             grantDays: 0,
             customImage: ''
         });
         setNewEmail('');
+        setNewValidatorEmail('');
         setSearchTerm('');
     };
 
@@ -134,6 +139,30 @@ export default function ConfigScreen({
         });
     };
 
+    const addValidatorEmail = () => {
+        const email = newValidatorEmail.trim().toLowerCase();
+        if (!email || formData.validatorEmails.length >= 3) return;
+        if (formData.validatorEmails.includes(email)) return;
+        // Auto-agregar también a allowedEmails para que el validador vea la puerta
+        const newAllowed = formData.allowedEmails.includes(email)
+            ? formData.allowedEmails
+            : [...formData.allowedEmails, email];
+        setFormData({
+            ...formData,
+            validatorEmails: [...formData.validatorEmails, email],
+            allowedEmails: newAllowed
+        });
+        setNewValidatorEmail('');
+    };
+
+    const removeValidatorEmail = (email) => {
+        // Solo quita de validatorEmails; sigue en allowedEmails como usuario normal
+        setFormData({
+            ...formData,
+            validatorEmails: formData.validatorEmails.filter(e => e !== email)
+        });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSaving(true);
@@ -145,6 +174,7 @@ export default function ConfigScreen({
                 deviceId: formData.deviceId,
                 authKey: formData.authKey,
                 allowedEmails: formData.allowedEmails,
+                validatorEmails: formData.validatorEmails,
                 associatedCameraId: formData.associatedCameraId,
                 generation: formData.generation || 'gen1',
                 grantDays: parseInt(formData.grantDays) || 0,
@@ -446,6 +476,44 @@ export default function ConfigScreen({
                             {formData.allowedEmails.length === 0 && (
                                 <p style={{ fontSize: '0.75em', color: '#666', margin: '10px 0 0' }}>Sin emails autorizados. Agrega al menos uno.</p>
                             )}
+                        </div>
+
+                        {/* VALIDADORES (máx 3) */}
+                        <div style={{ background: 'rgba(243,156,18,0.08)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(243,156,18,0.2)' }}>
+                            <label style={{ display: 'block', fontSize: '0.9em', color: '#f39c12', marginBottom: '10px', fontWeight: 'bold' }}>
+                                🔑 Validadores ({formData.validatorEmails.length}/3 máx)
+                            </label>
+                            <p style={{ fontSize: '0.75em', color: '#888', marginBottom: '12px', margin: '0 0 12px' }}>
+                                El validador puede abrir esta puerta y agregar/quitar usuarios de ella.
+                            </p>
+                            {formData.validatorEmails.length < 3 && (
+                                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                                    <input
+                                        type="email"
+                                        value={newValidatorEmail}
+                                        onChange={e => setNewValidatorEmail(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addValidatorEmail(); } }}
+                                        style={{ ...inputStyle, flex: 1 }}
+                                        placeholder="email del validador..."
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={addValidatorEmail}
+                                        style={{ background: '#f39c12', border: 'none', color: '#fff', padding: '10px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                                    >
+                                        + Asignar
+                                    </button>
+                                </div>
+                            )}
+                            {formData.validatorEmails.length === 0 && (
+                                <p style={{ fontSize: '0.78em', color: '#666', textAlign: 'center', margin: '8px 0 0' }}>Sin validadores asignados a esta puerta.</p>
+                            )}
+                            {formData.validatorEmails.map(email => (
+                                <div key={email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: 'rgba(243,156,18,0.15)', borderRadius: '8px', marginBottom: '6px', border: '1px solid rgba(243,156,18,0.3)' }}>
+                                    <span style={{ fontSize: '0.85em', color: '#f39c12' }}>🔑 {email}</span>
+                                    <button type="button" onClick={() => removeValidatorEmail(email)} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '0.85em', fontWeight: 'bold' }}>✕ Quitar</button>
+                                </div>
+                            ))}
                         </div>
 
                         {/* IMAGEN CUSTOM */}

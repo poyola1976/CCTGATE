@@ -58,6 +58,16 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     const [authorizedUsersData, setAuthorizedUsersData] = useState({});
 
+    // --- VALIDADOR: solo si el user es validador y esta asignado a ESTA puerta ---
+    const isValidatorForDoor = userProfile?.role === 'validador' &&
+        (device.validatorEmails || []).map(e => e.toLowerCase()).includes(userProfile.email?.toLowerCase());
+
+    const [showValidatorPanel, setShowValidatorPanel] = useState(false);
+    const [validatorNewEmail, setValidatorNewEmail] = useState('');
+    const [validatorGraceDays, setValidatorGraceDays] = useState(30);
+    const [validatorPanelUsers, setValidatorPanelUsers] = useState({});
+    const [validatorLoading, setValidatorLoading] = useState(false);
+
     // --- LÓGICA DE LICENCIA PARA EL ÍCONO ---
     const getLicenseInfo = () => {
         if (isAdmin || (userProfile && (userProfile.role === 'admin' || userProfile.role === 'validador'))) {
@@ -120,6 +130,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     const toggleLogs = async () => {
         setShowUsers(false);
+        setShowValidatorPanel(false);
         const history = await FirebaseService.getLogsForDoor(device.id);
         setLogs(history);
         setShowLogs(!showLogs);
@@ -128,6 +139,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const toggleUsers = async () => {
         if (!showUsers) {
             setShowLogs(false);
+            setShowValidatorPanel(false);
             if (isAdmin && device.allowedEmails && device.allowedEmails.length > 0) {
                 try {
                     const fetchedUsers = await UserService.getUsersByEmails(device.allowedEmails);
@@ -142,6 +154,60 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             }
         }
         setShowUsers(!showUsers);
+    };
+
+    // --- HANDLERS DEL PANEL DE VALIDADOR ---
+    const toggleValidatorPanel = async () => {
+        if (!showValidatorPanel) {
+            setShowLogs(false);
+            setShowUsers(false);
+            setShowCamera(false);
+            setValidatorLoading(true);
+            try {
+                if (device.allowedEmails && device.allowedEmails.length > 0) {
+                    const users = await UserService.getUsersByEmails(device.allowedEmails);
+                    const map = {};
+                    users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
+                    setValidatorPanelUsers(map);
+                }
+            } catch (e) { console.error('Error cargando usuarios:', e); }
+            finally { setValidatorLoading(false); }
+        }
+        setShowValidatorPanel(prev => !prev);
+    };
+
+    const handleValidatorAddEmail = async () => {
+        const email = validatorNewEmail.trim().toLowerCase();
+        if (!email) return;
+        setValidatorLoading(true);
+        try {
+            const currentEmails = device.allowedEmails || [];
+            if (!currentEmails.map(e => e.toLowerCase()).includes(email)) {
+                await FirebaseService.updateDoor(device.id, { allowedEmails: [...currentEmails, email] });
+            }
+            if (validatorGraceDays > 0) {
+                await UserService.grantDefaultLicenseByEmail(email, device.id);
+            }
+            setValidatorNewEmail('');
+            const users = await UserService.getUsersByEmails([...currentEmails, email]);
+            const map = {};
+            users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
+            setValidatorPanelUsers(map);
+        } catch (e) { alert('Error: ' + e.message); }
+        finally { setValidatorLoading(false); }
+    };
+
+    const handleValidatorRemoveEmail = async (email) => {
+        if (!window.confirm('Quitar acceso a ' + email + ' de esta puerta?')) return;
+        setValidatorLoading(true);
+        try {
+            const updatedEmails = (device.allowedEmails || []).filter(e => e.toLowerCase() !== email.toLowerCase());
+            await FirebaseService.updateDoor(device.id, { allowedEmails: updatedEmails });
+            const newMap = { ...validatorPanelUsers };
+            delete newMap[email.toLowerCase()];
+            setValidatorPanelUsers(newMap);
+        } catch (e) { alert('Error: ' + e.message); }
+        finally { setValidatorLoading(false); }
     };
 
     // --- MANEJO DEL CONTADOR DE AHORRO ---
@@ -366,9 +432,70 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 )}
             </div>
 
+            {isValidatorForDoor && (
+                <div style={{ marginTop: '8px' }}>
+                    <button
+                        onClick={toggleValidatorPanel}
+                        style={{
+                            width: '100%',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            border: showValidatorPanel ? '1px solid #f39c12' : '1px solid rgba(243,156,18,0.3)',
+                            background: showValidatorPanel ? 'rgba(243,156,18,0.2)' : 'rgba(243,156,18,0.08)',
+                            color: '#f39c12',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '0.85em'
+                        }}
+                    >
+                        {showValidatorPanel ? 'Cerrar Gestion' : 'Gestionar Usuarios'}
+                    </button>
+                </div>
+            )}
+
             {connectionState === 'offline' && (
                 <div style={{ marginTop: '10px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '0.7em', color: '#ff0000' }}>⚠️ {offlineReason}</span>
+                    <span style={{ fontSize: '0.7em', color: '#ff0000' }}>Offline: {offlineReason}</span>
+                </div>
+            )}
+
+            {isValidatorForDoor && showValidatorPanel && (
+                <div style={{ marginTop: '15px', background: 'rgba(243,156,18,0.06)', border: '1px solid rgba(243,156,18,0.25)', borderRadius: '12px', padding: '15px' }}>
+                    <h4 style={{ color: '#f39c12', margin: '0 0 12px', fontSize: '0.9em' }}>Usuarios con acceso: {device.name}</h4>
+                    {validatorLoading && <div style={{ textAlign: 'center', color: '#888', padding: '10px' }}>Cargando...</div>}
+                    {!validatorLoading && (device.allowedEmails || []).length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '15px' }}>
+                            {(device.allowedEmails || []).map(email => {
+                                const emailLower = email.toLowerCase();
+                                if (emailLower === userProfile?.email?.toLowerCase()) return null;
+                                const userData = validatorPanelUsers[emailLower];
+                                const rule = userData?.deviceAccess?.[device.id];
+                                const expDate = rule?.expirationDate ? new Date(rule.expirationDate.seconds * 1000) : null;
+                                const daysLeft = expDate ? Math.ceil((expDate - new Date()) / 86400000) : null;
+                                const isExp = daysLeft !== null && daysLeft <= 0;
+                                return (
+                                    <div key={email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.8em', color: '#ddd' }}>{email}</div>
+                                            <div style={{ fontSize: '0.7em', color: isExp ? '#e74c3c' : (daysLeft ? '#2ecc71' : '#888') }}>
+                                                {expDate ? (isExp ? 'Vencido ' + expDate.toLocaleDateString() : daysLeft + ' dias') : 'Sin fecha'}
+                                            </div>
+                                        </div>
+                                        <button onClick={() => handleValidatorRemoveEmail(email)} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '0.8em' }}>X Quitar</button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px' }}>
+                        <div style={{ fontSize: '0.8em', color: '#f39c12', marginBottom: '8px', fontWeight: 'bold' }}>+ Agregar usuario:</div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <input type="email" value={validatorNewEmail} onChange={e => setValidatorNewEmail(e.target.value)} placeholder="email@ejemplo.com" style={{ flex: 2, minWidth: '150px', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em' }} />
+                            <input type="number" value={validatorGraceDays} onChange={e => setValidatorGraceDays(Number(e.target.value))} min="0" max="365" style={{ flex: 1, minWidth: '60px', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em', textAlign: 'center' }} title="Dias de gracia" />
+                            <button onClick={handleValidatorAddEmail} disabled={!validatorNewEmail || validatorLoading} style={{ padding: '8px 14px', background: '#f39c12', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85em' }}>Agregar</button>
+                        </div>
+                        <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Dias de gracia = dias de licencia al agregar usuario.</div>
+                    </div>
                 </div>
             )}
 
