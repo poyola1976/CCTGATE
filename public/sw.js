@@ -1,5 +1,5 @@
-// CCTGATE Service Worker v1.0
-const CACHE_NAME = 'cctgate-v1';
+// CCTGATE Service Worker v1.1
+const CACHE_NAME = 'cctgate-v1.1';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -36,12 +36,17 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: Network-first strategy (siempre intenta la red, si falla usa caché)
 self.addEventListener('fetch', (event) => {
-    // No cachear peticiones a Firebase, Mercado Pago, o APIs externas
+    // No cachear peticiones a Firebase, Mercado Pago, o APIs externas ni streams de video
+    const url = event.request.url.toLowerCase();
     if (
-        event.request.url.includes('firebaseio.com') ||
-        event.request.url.includes('googleapis.com') ||
-        event.request.url.includes('mercadopago.com') ||
-        event.request.url.includes('shelly.cloud') ||
+        url.includes('firebaseio.com') ||
+        url.includes('googleapis.com') ||
+        url.includes('mercadopago.com') ||
+        url.includes('shelly.cloud') ||
+        url.includes('cctgate.i2r.cl') ||
+        url.includes('.flv') ||
+        url.includes('.ts') ||
+        url.includes('.m3u8') ||
         event.request.method !== 'GET'
     ) {
         return;

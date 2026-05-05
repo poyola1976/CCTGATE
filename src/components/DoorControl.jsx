@@ -168,50 +168,61 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     useEffect(() => {
         if (showCamera && !isTimedOut && camera && camera.type === 'rtmp') {
-            const port = 8443;
+            // MediaMTX: URL via Nginx HTTPS (sin puerto explícito, sin /live/)
             const serverDomain = 'cctgate.i2r.cl';
             const streamKey = camera.rtmpStreamKey || 'cam1';
-            const flvUrl = `https://${serverDomain}:${port}/live/${streamKey}.flv`;
-            const hlsUrl = `https://${serverDomain}:${port}/live/${streamKey}/index.m3u8`;
+            const hlsUrl = `https://${serverDomain}/live/${streamKey}/index.m3u8`;
+
+            // Limpiar cualquier player anterior
+            if (playerRef.current) {
+                if (typeof playerRef.current.destroy === 'function') playerRef.current.destroy();
+                playerRef.current = null;
+            }
+
+            setStreamStatus('loading');
 
             // DETECTOR DE IPHONE / IPAD
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
-            if (flvjs && flvjs.isSupported() && !isIOS) {
-                if (playerRef.current) {
-                    if (typeof playerRef.current.destroy === 'function') playerRef.current.destroy();
-                    playerRef.current = null;
-                }
-
+            if (Hls.isSupported() && !isIOS) {
+                // HLS.js para Chrome, Firefox, Android, etc.
+                // Reintentos automáticos para el 404 inicial de MediaMTX (genera segmentos bajo demanda)
                 try {
-                    setStreamStatus('loading');
-                    const flvPlayer = flvjs.createPlayer({
-                        type: 'flv', url: flvUrl, isLive: true, hasAudio: false, cors: true
+                    const hls = new Hls({
+                        lowLatencyMode: true,
+                        liveSyncDurationCount: 2,
+                        liveMaxLatencyDurationCount: 4,
+                        enableWorker: true,
+                        manifestLoadingMaxRetry: 10,
+                        manifestLoadingRetryDelay: 500,
+                        manifestLoadingMaxRetryTimeout: 30000,
+                        levelLoadingMaxRetry: 6,
+                        levelLoadingRetryDelay: 500,
                     });
-                    flvPlayer.attachMediaElement(videoRef.current);
-                    flvPlayer.load();
-                    flvPlayer.play().then(() => {
+                    hls.loadSource(hlsUrl);
+                    hls.attachMedia(videoRef.current);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
                         setStreamStatus('playing');
                         setStreamError('');
-                    }).catch(err => console.warn("FLV Play Warning:", err));
-
-                    flvPlayer.on(flvjs.Events.ERROR, (type, details) => {
-                        setStreamStatus('error');
-                        setStreamError(`Error Stream: ${type}`);
+                        videoRef.current.play().catch(e => console.warn("AutoPlay blocked:", e));
                     });
-                    playerRef.current = flvPlayer;
+                    hls.on(Hls.Events.ERROR, (event, data) => {
+                        if (data.fatal) {
+                            setStreamStatus('error');
+                            setStreamError('Cámara Offline o sin señal');
+                        }
+                    });
+                    playerRef.current = hls;
                 } catch (err) {
                     setStreamStatus('error');
                     setStreamError('Error al iniciar reproductor');
                 }
             } else {
-                // MODO HLS (iOS Safari / Fallback)
-                setStreamStatus('loading');
+                // HLS nativo para iOS Safari
                 if (videoRef.current) {
                     videoRef.current.src = hlsUrl;
                     videoRef.current.setAttribute('playsinline', 'true');
                     videoRef.current.setAttribute('webkit-playsinline', 'true');
-
                     videoRef.current.onloadedmetadata = () => {
                         setStreamStatus('playing');
                         videoRef.current.play().catch(e => {
@@ -219,7 +230,6 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             setStreamError('Presiona Play para ver');
                         });
                     };
-
                     videoRef.current.onerror = () => {
                         setStreamStatus('error');
                         setStreamError('Cámara Offline (iOS)');

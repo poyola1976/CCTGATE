@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UserService } from '../services/userService';
+import { FirebaseService } from '../services/firebase';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -38,12 +39,13 @@ export default function AdminUsersScreen({ devices, onBack }) {
 
         setIsProcessing(true);
         try {
+            const normalizedEmail = emailToAdd.toLowerCase().trim();
             const selectedDoor = doors.find(d => d.id === selectedDoorId);
             const graceDays = selectedDoor?.grantDays ?? 0;
 
             // Buscar usuario por email
             const allUsers = await UserService.getAllUsers();
-            const targetUser = allUsers.find(u => u.email?.toLowerCase() === emailToAdd.toLowerCase().trim());
+            const targetUser = allUsers.find(u => u.email?.toLowerCase() === normalizedEmail);
 
             if (!targetUser) {
                 alert("❌ Este email no está registrado en el sistema. El usuario debe iniciar sesión al menos una vez.");
@@ -55,10 +57,21 @@ export default function AdminUsersScreen({ devices, onBack }) {
             expDate.setDate(expDate.getDate() + graceDays);
             expDate.setHours(23, 59, 59, 999);
 
+            // 1. Actualizar deviceAccess del usuario
             await UserService.updateUserExpiration(targetUser.uid, now, expDate, selectedDoorId);
+
+            // 2. CRTICO: asegurar que el email está en allowedEmails de la puerta
+            //    Sin esto, el usuario nunca verá esa puerta en su pantalla principal
+            const currentEmails = selectedDoor?.allowedEmails || [];
+            if (!currentEmails.map(e => e.toLowerCase()).includes(normalizedEmail)) {
+                await FirebaseService.updateDoor(selectedDoorId, {
+                    allowedEmails: [...currentEmails, normalizedEmail]
+                });
+            }
+
             setEmailToAdd('');
             alert(`✅ Usuario autorizado con ${graceDays} días de gracia.`);
-            await loadUsers(); // Recargar lista
+            await loadUsers();
         } catch (error) {
             console.error("Error authorizing:", error);
             alert("❌ Error: " + error.message);
@@ -104,6 +117,30 @@ export default function AdminUsersScreen({ devices, onBack }) {
             alert("✅ Acceso revocado.");
             await loadUsers();
         } catch (error) {
+            alert("Error: " + error.message);
+        }
+    };
+
+    const handleRemoveUserFromDoor = async (uid, doorId, email) => {
+        const door = doors.find(d => d.id === doorId);
+        const doorName = door?.name || 'esta puerta';
+        if (!window.confirm(`¿Eliminar a ${email} de "${doorName}"?\n\nEsto quitará su acceso y lo removerá de la lista completamente.`)) return;
+        try {
+            // 1. Quitar email de allowedEmails de la puerta
+            if (door) {
+                const updatedEmails = (door.allowedEmails || []).filter(e => e.toLowerCase() !== email.toLowerCase());
+                await FirebaseService.updateDoor(doorId, { allowedEmails: updatedEmails });
+            }
+            // 2. Quitar entrada deviceAccess del usuario para esta puerta
+            const { getFirestore, doc, updateDoc, deleteField } = await import('firebase/firestore');
+            const db = getFirestore();
+            const userRef = doc(db, 'users', uid);
+            await updateDoc(userRef, { [`deviceAccess.${doorId}`]: deleteField() });
+
+            alert(`✅ ${email} eliminado de "${doorName}".`);
+            await loadUsers();
+        } catch (error) {
+            console.error("Error eliminando usuario:", error);
             alert("Error: " + error.message);
         }
     };
@@ -369,7 +406,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                                 {expDate ? (isExpired ? `⛔ Venció ${expDate.toLocaleDateString()}` : `✅ ${daysLeft} días restantes`) : 'N/A'}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                        <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                             <button
                                                 onClick={() => handleOpenEditDate(auth.uid, auth.doorId, auth.email, auth.expiration)}
                                                 style={{ background: '#3498db', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em' }}
@@ -378,9 +415,16 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                             </button>
                                             <button
                                                 onClick={() => handleRevokeAccess(auth.uid, auth.doorId)}
-                                                style={{ background: '#e74c3c', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em' }}
+                                                style={{ background: '#e67e22', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em' }}
                                             >
                                                 Revocar
+                                            </button>
+                                            <button
+                                                onClick={() => handleRemoveUserFromDoor(auth.uid, auth.doorId, auth.email)}
+                                                style={{ background: '#c0392b', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em', fontWeight: 'bold' }}
+                                                title="Elimina al usuario de esta puerta completamente"
+                                            >
+                                                🗑️ Eliminar
                                             </button>
                                         </div>
                                     </div>

@@ -23,7 +23,34 @@ exports.createPaymentPreference = onCall({ secrets: ["MP_ACCESS_TOKEN"] }, async
     if (!plan || !userId || !doorId) throw new HttpsError("invalid-argument", "Faltan parámetros.");
 
     const isAnnual = plan === 'anual';
-    const amount = isAnnual ? 30000 : 25000;
+
+    // Leer precio desde Firestore (puerta específica → global → fallback)
+    let amount;
+    try {
+        const doorSnap = await db.collection('doors').doc(doorId).get();
+        const doorData = doorSnap.data() || {};
+
+        // 1. Precio específico por puerta
+        if (isAnnual && doorData.price_anual) {
+            amount = Number(doorData.price_anual);
+        } else if (!isAnnual && doorData.price_semestral) {
+            amount = Number(doorData.price_semestral);
+        } else {
+            // 2. Precio global desde Firestore
+            const globalSnap = await db.collection('config').doc('pricing').get();
+            const globalData = globalSnap.exists ? globalSnap.data() : {};
+            if (isAnnual) {
+                amount = Number(globalData.anual || 10000);
+            } else {
+                amount = Number(globalData.semestral || 8000);
+            }
+        }
+    } catch (err) {
+        console.warn("No se pudo leer precio de Firestore, usando fallback:", err.message);
+        amount = isAnnual ? 10000 : 8000;
+    }
+
+    console.log(`💰 Plan: ${plan} | Puerta: ${doorId} | Precio: ${amount} CLP`);
 
     try {
         const preference = new Preference(mpClient);
