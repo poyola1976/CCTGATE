@@ -398,7 +398,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     </button>
                 )}
 
-                {userProfile && (
+                {(userProfile || isAdmin || isValidatorForDoor) && (
                     <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
                         <button
                             onClick={() => setShowLicenseModal(true)}

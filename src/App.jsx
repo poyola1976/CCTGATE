@@ -555,8 +555,10 @@ function App() {
                         device={device}
                         onMessage={handleChildMessage}
                         isAdmin={userRole === 'admin'}
+                        userProfile={userProfile}
                         // Pass associated camera object if exists
-                        camera={cameras.find(c => c.id === device.associatedCameraId)}
+                        camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
+                        globalPricing={globalPricing}
                       />
                     ))}
                   </div>
