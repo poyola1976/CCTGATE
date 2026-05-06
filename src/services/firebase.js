@@ -67,10 +67,10 @@ try {
     // --- CONEXIÓN A EMULADORES (Modo Local) ---
     if (typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        console.log("🛠️ CONECTANDO A EMULADORES LOCALES...");
-        connectFirestoreEmulator(db, '127.0.0.1', 8180);
-        connectAuthEmulator(auth, 'http://127.0.0.1:9199');
-        connectFunctionsEmulator(functions, '127.0.0.1', 5101);
+        // console.log("🛠️ CONECTANDO A EMULADORES LOCALES...");
+        // connectFirestoreEmulator(db, '127.0.0.1', 8180);
+        // connectAuthEmulator(auth, 'http://127.0.0.1:9199');
+        // connectFunctionsEmulator(functions, '127.0.0.1', 5101);
     }
 } catch (e) {
     console.error("🔥 CRITICAL FIREBASE ERROR:", e);

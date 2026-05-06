@@ -182,9 +182,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         setValidatorLoading(true);
         try {
             const currentEmails = device.allowedEmails || [];
-            if (!currentEmails.map(e => e.toLowerCase()).includes(email)) {
-                await FirebaseService.updateDoor(device.id, { allowedEmails: [...currentEmails, email] });
+            if (currentEmails.map(e => e.toLowerCase()).includes(email)) {
+                alert(`⚠️ El correo ${email} ya tiene acceso a esta puerta.`);
+                setValidatorLoading(false);
+                return;
             }
+            await FirebaseService.updateDoor(device.id, { allowedEmails: [...currentEmails, email] });
             if (validatorGraceDays > 0) {
                 await UserService.grantDefaultLicenseByEmail(email, device.id);
             }

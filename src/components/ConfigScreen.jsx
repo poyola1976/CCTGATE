@@ -23,6 +23,9 @@ export default function ConfigScreen({
         customImage: ''
     });
 
+    const existingGroups = [...new Set(doors.map(d => d.group).filter(Boolean))];
+    const [isNewGroupMode, setIsNewGroupMode] = useState(false);
+
     const [newEmail, setNewEmail] = useState('');
     const [newValidatorEmail, setNewValidatorEmail] = useState('');
     const [isSaving, setIsSaving] = useState(false);
@@ -123,16 +126,23 @@ export default function ConfigScreen({
 
     const addEmail = () => {
         const email = newEmail.trim().toLowerCase();
-        if (email && !formData.allowedEmails.includes(email)) {
-            setFormData({
-                ...formData,
-                allowedEmails: [...formData.allowedEmails, email]
-            });
-            setNewEmail('');
+        if (!email) return;
+
+        if (formData.allowedEmails.includes(email)) {
+            alert(`⚠️ El correo ${email} ya está en la lista de autorizados.`);
+            return;
         }
+
+        setFormData({
+            ...formData,
+            allowedEmails: [...formData.allowedEmails, email]
+        });
+        setNewEmail('');
     };
 
     const removeEmail = (email) => {
+        if (!window.confirm(`¿Estás seguro que deseas quitar el acceso de ${email} a esta puerta?`)) return;
+
         setFormData({
             ...formData,
             allowedEmails: formData.allowedEmails.filter(e => e !== email)
@@ -141,8 +151,18 @@ export default function ConfigScreen({
 
     const addValidatorEmail = () => {
         const email = newValidatorEmail.trim().toLowerCase();
-        if (!email || formData.validatorEmails.length >= 3) return;
-        if (formData.validatorEmails.includes(email)) return;
+        if (!email) return;
+
+        if (formData.validatorEmails.length >= 3) {
+            alert("❌ Puedes tener un máximo de 3 validadores por puerta.");
+            return;
+        }
+
+        if (formData.validatorEmails.includes(email)) {
+            alert(`⚠️ El correo ${email} ya está asignado como validador en esta puerta.`);
+            return;
+        }
+
         // Auto-agregar también a allowedEmails para que el validador vea la puerta
         const newAllowed = formData.allowedEmails.includes(email)
             ? formData.allowedEmails
@@ -156,6 +176,8 @@ export default function ConfigScreen({
     };
 
     const removeValidatorEmail = (email) => {
+        if (!window.confirm(`¿Quitar a ${email} como validador de esta puerta? (Seguirá teniendo acceso normal)`)) return;
+
         // Solo quita de validatorEmails; sigue en allowedEmails como usuario normal
         setFormData({
             ...formData,
@@ -375,12 +397,48 @@ export default function ConfigScreen({
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '5px' }}>Grupo:</label>
-                                <input
-                                    value={formData.group}
-                                    onChange={(e) => setFormData({ ...formData, group: e.target.value })}
-                                    style={inputStyle}
-                                    placeholder="Ej: Sucursal Centro, Planta sur..."
-                                />
+                                {!isNewGroupMode && existingGroups.length > 0 ? (
+                                    <select
+                                        value={formData.group}
+                                        onChange={(e) => {
+                                            if (e.target.value === '___NEW___') {
+                                                setIsNewGroupMode(true);
+                                                setFormData({ ...formData, group: '' });
+                                            } else {
+                                                setFormData({ ...formData, group: e.target.value });
+                                            }
+                                        }}
+                                        style={inputStyle}
+                                    >
+                                        <option value="">-- Sin Grupo --</option>
+                                        {existingGroups.map(g => (
+                                            <option key={g} value={g}>{g}</option>
+                                        ))}
+                                        <option value="___NEW___">➕ Crear nuevo grupo...</option>
+                                    </select>
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '5px' }}>
+                                        <input
+                                            value={formData.group}
+                                            onChange={(e) => setFormData({ ...formData, group: e.target.value })}
+                                            style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                                            placeholder="Nombre de nuevo grupo..."
+                                        />
+                                        {existingGroups.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsNewGroupMode(false);
+                                                    setFormData({ ...formData, group: existingGroups[0] || '' });
+                                                }}
+                                                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid #444', color: '#fff', borderRadius: '6px', padding: '0 15px', cursor: 'pointer', fontWeight: 'bold' }}
+                                                title="Cancelar y seleccionar existente"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

@@ -15,6 +15,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
     const [filterDoorId, setFilterDoorId] = useState('all');
     const [editingUser, setEditingUser] = useState(null); // { uid, doorId, email, currentExp }
     const [newDateValue, setNewDateValue] = useState('');
+    const [editingUserInfo, setEditingUserInfo] = useState(null); // { uid, email, displayName, phone }
 
     // Cargar usuarios al montar
     useEffect(() => {
@@ -145,15 +146,60 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
-    const handleChangeRole = async (uid, email, currentRole) => {
-        const newRole = currentRole === 'validador' ? 'user' : 'validador';
-        const roleLabel = newRole === 'validador' ? 'VALIDADOR' : 'USUARIO NORMAL';
-        if (!window.confirm(`Cambiar el rol de ${email} a ${roleLabel}?\n\nRecuerda asignar el validador a la puerta correspondiente desde Configuracion.`)) return;
+    const handleShowUserInfo = (uid) => {
+        const u = users.find(x => x.uid === uid);
+        if (u) {
+            setEditingUserInfo({
+                uid: u.uid,
+                email: u.email || 'Sin email',
+                displayName: u.displayName || '',
+                phone: u.phone || ''
+            });
+        } else {
+            alert('Usuario no encontrado en la memoria local.');
+        }
+    };
+
+    const handleConfirmUserInfoChange = async () => {
+        if (!editingUserInfo) return;
         try {
             const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
             const db = getFirestore();
-            await updateDoc(doc(db, 'users', uid), { role: newRole });
-            alert(`Rol de ${email} actualizado a ${roleLabel}`);
+            await updateDoc(doc(db, 'users', editingUserInfo.uid), {
+                displayName: editingUserInfo.displayName,
+                phone: editingUserInfo.phone
+            });
+            alert('✅ Información de usuario actualizada.');
+            setEditingUserInfo(null);
+            await loadUsers();
+        } catch (error) {
+            alert('Error al actualizar: ' + error.message);
+        }
+    };
+
+    const handleToggleDoorValidator = async (uid, email, doorId, isCurrentlyValidator) => {
+        const door = doors.find(d => d.id === doorId);
+        if (!door) return;
+        const currentEmails = door.validatorEmails || [];
+        const normalizedEmail = email.toLowerCase();
+
+        try {
+            if (isCurrentlyValidator) {
+                if (!window.confirm(`¿Quitar a ${email} como validador de "${door.name}"?`)) return;
+                const newEmails = currentEmails.filter(e => e.toLowerCase() !== normalizedEmail);
+                await FirebaseService.updateDoor(doorId, { validatorEmails: newEmails });
+            } else {
+                if (currentEmails.length >= 3) return alert("❌ Máximo 3 validadores por puerta.");
+                if (!window.confirm(`¿Asignar a ${email} como validador de "${door.name}"?`)) return;
+
+                await FirebaseService.updateDoor(doorId, { validatorEmails: [...currentEmails, normalizedEmail] });
+
+                // Asegurar que tenga el rol global de validador para permisos de lectura
+                const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+                const db = getFirestore();
+                await updateDoc(doc(db, 'users', uid), { role: 'validador' });
+            }
+            alert(`✅ Permisos de validador actualizados para ${door.name}.`);
             await loadUsers();
         } catch (error) {
             alert('Error: ' + error.message);
@@ -175,7 +221,8 @@ export default function AdminUsersScreen({ devices, onBack }) {
                         doorId: dId,
                         doorName: door.name,
                         expiration: u.deviceAccess[dId].expirationDate,
-                        role: u.role || 'user'
+                        role: u.role || 'user',
+                        isDoorValidator: (door.validatorEmails || []).some(e => e.toLowerCase() === (u.email || '').toLowerCase())
                     });
                 }
             });
@@ -419,12 +466,12 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                                 <div style={{ fontSize: '0.85em', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis' }}>{auth.email}</div>
                                                 <button
-                                                    onClick={() => handleChangeRole(auth.uid, auth.email, auth.role)}
-                                                    title="Clic para cambiar rol"
+                                                    onClick={() => handleToggleDoorValidator(auth.uid, auth.email, auth.doorId, auth.isDoorValidator)}
+                                                    title="Clic para cambiar rol en esta puerta"
                                                     style={{
-                                                        background: auth.role === 'validador' ? 'rgba(243,156,18,0.2)' : 'rgba(255,255,255,0.08)',
-                                                        border: '1px solid ' + (auth.role === 'validador' ? '#f39c12' : 'rgba(255,255,255,0.2)'),
-                                                        color: auth.role === 'validador' ? '#f39c12' : '#777',
+                                                        background: auth.isDoorValidator ? 'rgba(243,156,18,0.2)' : 'rgba(255,255,255,0.08)',
+                                                        border: '1px solid ' + (auth.isDoorValidator ? '#f39c12' : 'rgba(255,255,255,0.2)'),
+                                                        color: auth.isDoorValidator ? '#f39c12' : '#777',
                                                         padding: '1px 7px',
                                                         borderRadius: '10px',
                                                         cursor: 'pointer',
@@ -433,7 +480,7 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                                         flexShrink: 0
                                                     }}
                                                 >
-                                                    {auth.role === 'validador' ? 'Validador' : 'Usuario'}
+                                                    {auth.isDoorValidator ? 'Validador' : 'Usuario'}
                                                 </button>
                                             </div>
                                             <div style={{ fontSize: '0.75em', color: '#888', marginTop: '2px' }}>{auth.doorName}</div>
@@ -442,6 +489,13 @@ export default function AdminUsersScreen({ devices, onBack }) {
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                            <button
+                                                onClick={() => handleShowUserInfo(auth.uid)}
+                                                style={{ background: '#2c3e50', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em' }}
+                                                title="Ver datos de contacto del usuario"
+                                            >
+                                                ℹ️ Info
+                                            </button>
                                             <button
                                                 onClick={() => handleOpenEditDate(auth.uid, auth.doorId, auth.email, auth.expiration)}
                                                 style={{ background: '#3498db', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75em' }}
@@ -552,6 +606,56 @@ export default function AdminUsersScreen({ devices, onBack }) {
                             >
                                 Cancelar
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL EDITAR INFO DE USUARIO */}
+            {editingUserInfo && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 1100, padding: '20px', boxSizing: 'border-box'
+                }}>
+                    <div style={{
+                        background: '#1e1e2e', borderRadius: '16px', padding: '25px', maxWidth: '400px', width: '100%',
+                        border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                    }}>
+                        <h3 style={{ color: '#fff', marginBottom: '15px', textAlign: 'center' }}>ℹ️ Información del Usuario</h3>
+                        <p style={{ color: '#aaa', fontSize: '0.85em', textAlign: 'center', marginBottom: '20px' }}>
+                            <span style={{ color: '#fff', fontWeight: 'bold' }}>{editingUserInfo.email}</span><br />
+                            <small>(El correo electrónico no es editable)</small>
+                        </p>
+                        <div style={{ marginBottom: '15px' }}>
+                            <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '6px' }}>Nombre Completo:</label>
+                            <input
+                                type="text"
+                                value={editingUserInfo.displayName}
+                                onChange={(e) => setEditingUserInfo({ ...editingUserInfo, displayName: e.target.value })}
+                                placeholder="Ej: Juan Perez"
+                                style={{
+                                    width: '100%', padding: '12px', background: 'rgba(0,0,0,0.4)', boxSizing: 'border-box',
+                                    border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: '#fff', fontSize: '1em'
+                                }}
+                            />
+                        </div>
+                        <div style={{ marginBottom: '25px' }}>
+                            <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '6px' }}>Teléfono:</label>
+                            <input
+                                type="tel"
+                                value={editingUserInfo.phone}
+                                onChange={(e) => setEditingUserInfo({ ...editingUserInfo, phone: e.target.value })}
+                                placeholder="Ej: +56912345678"
+                                style={{
+                                    width: '100%', padding: '12px', background: 'rgba(0,0,0,0.4)', boxSizing: 'border-box',
+                                    border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: '#fff', fontSize: '1em'
+                                }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={handleConfirmUserInfoChange} style={{ flex: 1, background: '#2ecc71', border: 'none', color: '#fff', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>💾 Guardar</button>
+                            <button onClick={() => setEditingUserInfo(null)} style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '12px', borderRadius: '8px', cursor: 'pointer' }}>❌ Cancelar</button>
                         </div>
                     </div>
                 </div>
