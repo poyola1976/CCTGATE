@@ -206,6 +206,82 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
+    const handleExcelImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!selectedDoorId) {
+            alert("⚠️ Por favor selecciona una puerta primero de la lista desplegable antes de importar el archivo.");
+            e.target.value = null;
+            return;
+        }
+
+        const door = doors.find(d => d.id === selectedDoorId);
+        if (!door) return;
+
+        setIsProcessing(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const foundEmails = new Set();
+            json.forEach(row => {
+                if (Array.isArray(row)) {
+                    row.forEach(cell => {
+                        const str = String(cell).trim().toLowerCase();
+                        if (emailRegex.test(str)) {
+                            foundEmails.add(str);
+                        }
+                    });
+                }
+            });
+
+            const newEmails = Array.from(foundEmails);
+            if (newEmails.length === 0) {
+                alert("❌ No se encontraron correos válidos en el archivo Excel.");
+                setIsProcessing(false);
+                return;
+            }
+
+            const currentEmails = door.allowedEmails || [];
+            const emailsToAdd = newEmails.filter(em => !currentEmails.map(c => c.toLowerCase()).includes(em));
+
+            if (emailsToAdd.length === 0) {
+                alert("⚠️ Todos los correos detectados en el Excel ya estaban autorizados.");
+                setIsProcessing(false);
+                return;
+            }
+
+            const confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.\n¿Desea darles acceso a la puerta "${door.name}" (junto con ${door.grantDays ?? 0} días de gracia inicial)?`;
+            if (!window.confirm(confirmMsg)) {
+                setIsProcessing(false);
+                return;
+            }
+
+            const mergedEmails = [...currentEmails, ...emailsToAdd];
+            await FirebaseService.updateDoor(door.id, { allowedEmails: mergedEmails });
+
+            const grace = door.grantDays || 0;
+            if (grace > 0) {
+                for (const email of emailsToAdd) {
+                    await UserService.grantDefaultLicenseByEmail(email, door.id);
+                }
+            }
+
+            alert(`✅ ${emailsToAdd.length} nuevos usuarios autorizados.`);
+            await loadUsers();
+        } catch (error) {
+            console.error("Error leyendo Excel:", error);
+            alert("❌ Error procesando el archivo: " + error.message);
+        } finally {
+            setIsProcessing(false);
+            e.target.value = null;
+        }
+    };
+
     if (loading) return <div style={{ padding: '20px', color: '#fff', textAlign: 'center' }}>Cargando usuarios...</div>;
 
     // Construir lista de accesos activos
@@ -386,6 +462,20 @@ export default function AdminUsersScreen({ devices, onBack }) {
                     >
                         {isProcessing ? 'Procesando...' : 'Autorizar'}
                     </button>
+
+                    <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px dotted rgba(255,255,255,0.1)' }}>
+                        <div style={{ fontSize: '0.8em', color: '#2ecc71', marginBottom: '8px', fontWeight: 'bold' }}>📄 Importación Masiva (Excel / CSV):</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <input
+                                type="file"
+                                accept=".xlsx, .xls, .csv"
+                                onChange={handleExcelImport}
+                                style={{ flex: 1, fontSize: '0.75em', padding: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#ccc', cursor: 'pointer' }}
+                                disabled={isProcessing}
+                            />
+                        </div>
+                        <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Selecciona una puerta y sube tu archivo. El sistema agregará todos los correos del documento.</div>
+                    </div>
                 </div>
             </form>
 

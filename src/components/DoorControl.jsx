@@ -5,6 +5,7 @@ import { FirebaseService } from '../services/firebase';
 import { UserService } from '../services/userService';
 import flvjs from 'flv.js';
 import Hls from 'hls.js';
+import * as XLSX from 'xlsx';
 
 export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing }) {
     // Cálculo de Precios Dinámicos
@@ -58,9 +59,9 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     const [authorizedUsersData, setAuthorizedUsersData] = useState({});
 
-    // --- VALIDADOR: solo si el user es validador y esta asignado a ESTA puerta ---
-    const isValidatorForDoor = userProfile?.role === 'validador' &&
-        (device.validatorEmails || []).map(e => e.toLowerCase()).includes(userProfile.email?.toLowerCase());
+    // --- GESTIÓN DE PANEL (Admin o Validador de puerta) ---
+    const canManageUsers = isAdmin || (userProfile?.role === 'validador' &&
+        (device.validatorEmails || []).map(e => e.toLowerCase()).includes(userProfile.email?.toLowerCase()));
 
     const [showValidatorPanel, setShowValidatorPanel] = useState(false);
     const [validatorNewEmail, setValidatorNewEmail] = useState('');
@@ -208,9 +209,80 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             await FirebaseService.updateDoor(device.id, { allowedEmails: updatedEmails });
             const newMap = { ...validatorPanelUsers };
             delete newMap[email.toLowerCase()];
-            setValidatorPanelUsers(newMap);
         } catch (e) { alert('Error: ' + e.message); }
         finally { setValidatorLoading(false); }
+    };
+
+    const handleExcelUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setValidatorLoading(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const foundEmails = new Set();
+            json.forEach(row => {
+                if (Array.isArray(row)) {
+                    row.forEach(cell => {
+                        const str = String(cell).trim().toLowerCase();
+                        if (emailRegex.test(str)) {
+                            foundEmails.add(str);
+                        }
+                    });
+                }
+            });
+
+            const newEmails = Array.from(foundEmails);
+            if (newEmails.length === 0) {
+                alert("❌ No se encontraron correos válidos en el archivo Excel.");
+                setValidatorLoading(false);
+                return;
+            }
+
+            const currentEmails = device.allowedEmails || [];
+            const emailsToAdd = newEmails.filter(em => !currentEmails.map(c => c.toLowerCase()).includes(em));
+
+            if (emailsToAdd.length === 0) {
+                alert("⚠️ Todos los correos detectados en el Excel ya estaban autorizados.");
+                setValidatorLoading(false);
+                return;
+            }
+
+            const confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.\n¿Desea darles acceso a esta puerta (junto con ${validatorGraceDays} días de gracia inicial)?`;
+            if (!window.confirm(confirmMsg)) {
+                setValidatorLoading(false);
+                return;
+            }
+
+            const mergedEmails = [...currentEmails, ...emailsToAdd];
+            await FirebaseService.updateDoor(device.id, { allowedEmails: mergedEmails });
+
+            if (validatorGraceDays > 0) {
+                for (const email of emailsToAdd) {
+                    await UserService.grantDefaultLicenseByEmail(email, device.id);
+                }
+            }
+
+            alert(`✅ ${emailsToAdd.length} nuevos usuarios autorizados.`);
+            setValidatorNewEmail('');
+
+            const users = await UserService.getUsersByEmails(mergedEmails);
+            const map = {};
+            users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
+            setValidatorPanelUsers(map);
+
+        } catch (error) {
+            console.error("Error leyendo Excel:", error);
+            alert("❌ Error procesando el archivo: " + error.message);
+        } finally {
+            setValidatorLoading(false);
+            e.target.value = null;
+        }
     };
 
     // --- MANEJO DEL CONTADOR DE AHORRO ---
@@ -435,7 +507,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 )}
             </div>
 
-            {isValidatorForDoor && (
+            {canManageUsers && (
                 <div style={{ marginTop: '8px' }}>
                     <button
                         onClick={toggleValidatorPanel}
@@ -462,7 +534,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 </div>
             )}
 
-            {isValidatorForDoor && showValidatorPanel && (
+            {canManageUsers && showValidatorPanel && (
                 <div style={{ marginTop: '15px', background: 'rgba(243,156,18,0.06)', border: '1px solid rgba(243,156,18,0.25)', borderRadius: '12px', padding: '15px' }}>
                     <h4 style={{ color: '#f39c12', margin: '0 0 12px', fontSize: '0.9em' }}>Usuarios con acceso: {device.name}</h4>
                     {validatorLoading && <div style={{ textAlign: 'center', color: '#888', padding: '10px' }}>Cargando...</div>}
@@ -498,6 +570,19 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             <button onClick={handleValidatorAddEmail} disabled={!validatorNewEmail || validatorLoading} style={{ padding: '8px 14px', background: '#f39c12', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85em' }}>Agregar</button>
                         </div>
                         <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Dias de gracia = dias de licencia al agregar usuario.</div>
+                        <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px dotted rgba(255,255,255,0.1)' }}>
+                            <div style={{ fontSize: '0.8em', color: '#2ecc71', marginBottom: '8px', fontWeight: 'bold' }}>📄 Importación Masiva (Excel / CSV):</div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    type="file"
+                                    accept=".xlsx, .xls, .csv"
+                                    onChange={handleExcelUpload}
+                                    style={{ flex: 1, fontSize: '0.75em', padding: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#ccc', cursor: 'pointer' }}
+                                    disabled={validatorLoading}
+                                />
+                            </div>
+                            <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Sube tu Excel. El sistema barrerá y extraerá todos los correos del documento automáticamente y los agregará a esta puerta.</div>
+                        </div>
                     </div>
                 </div>
             )}
