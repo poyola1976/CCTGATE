@@ -9,9 +9,6 @@ export default function AdminUsersScreen({ devices, onBack }) {
     const doors = devices || [];
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedDoorId, setSelectedDoorId] = useState('');
-    const [emailToAdd, setEmailToAdd] = useState('');
-    const [isProcessing, setIsProcessing] = useState(false);
     const [filterDoorId, setFilterDoorId] = useState('all');
     const [editingUser, setEditingUser] = useState(null); // { uid, doorId, email, currentExp }
     const [newDateValue, setNewDateValue] = useState('');
@@ -34,52 +31,6 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
-    const handleAuthorize = async (e) => {
-        e.preventDefault();
-        if (!emailToAdd || !selectedDoorId) return;
-
-        setIsProcessing(true);
-        try {
-            const normalizedEmail = emailToAdd.toLowerCase().trim();
-            const selectedDoor = doors.find(d => d.id === selectedDoorId);
-            const graceDays = selectedDoor?.grantDays ?? 0;
-
-            // Buscar usuario por email
-            const allUsers = await UserService.getAllUsers();
-            const targetUser = allUsers.find(u => u.email?.toLowerCase() === normalizedEmail);
-
-            if (!targetUser) {
-                alert("❌ Este email no está registrado en el sistema. El usuario debe iniciar sesión al menos una vez.");
-                return;
-            }
-
-            const now = new Date();
-            const expDate = new Date();
-            expDate.setDate(expDate.getDate() + graceDays);
-            expDate.setHours(23, 59, 59, 999);
-
-            // 1. Actualizar deviceAccess del usuario
-            await UserService.updateUserExpiration(targetUser.uid, now, expDate, selectedDoorId);
-
-            // 2. CRTICO: asegurar que el email está en allowedEmails de la puerta
-            //    Sin esto, el usuario nunca verá esa puerta en su pantalla principal
-            const currentEmails = selectedDoor?.allowedEmails || [];
-            if (!currentEmails.map(e => e.toLowerCase()).includes(normalizedEmail)) {
-                await FirebaseService.updateDoor(selectedDoorId, {
-                    allowedEmails: [...currentEmails, normalizedEmail]
-                });
-            }
-
-            setEmailToAdd('');
-            alert(`✅ Usuario autorizado con ${graceDays} días de gracia.`);
-            await loadUsers();
-        } catch (error) {
-            console.error("Error authorizing:", error);
-            alert("❌ Error: " + error.message);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
 
     const handleOpenEditDate = (uid, doorId, email, expiration) => {
         const currentExp = expiration?.seconds ? new Date(expiration.seconds * 1000) : new Date();
@@ -206,81 +157,6 @@ export default function AdminUsersScreen({ devices, onBack }) {
         }
     };
 
-    const handleExcelImport = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        if (!selectedDoorId) {
-            alert("⚠️ Por favor selecciona una puerta primero de la lista desplegable antes de importar el archivo.");
-            e.target.value = null;
-            return;
-        }
-
-        const door = doors.find(d => d.id === selectedDoorId);
-        if (!door) return;
-
-        setIsProcessing(true);
-        try {
-            const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data, { type: 'buffer' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            const foundEmails = new Set();
-            json.forEach(row => {
-                if (Array.isArray(row)) {
-                    row.forEach(cell => {
-                        const str = String(cell).trim().toLowerCase();
-                        if (emailRegex.test(str)) {
-                            foundEmails.add(str);
-                        }
-                    });
-                }
-            });
-
-            const newEmails = Array.from(foundEmails);
-            if (newEmails.length === 0) {
-                alert("❌ No se encontraron correos válidos en el archivo Excel.");
-                setIsProcessing(false);
-                return;
-            }
-
-            const currentEmails = door.allowedEmails || [];
-            const emailsToAdd = newEmails.filter(em => !currentEmails.map(c => c.toLowerCase()).includes(em));
-
-            if (emailsToAdd.length === 0) {
-                alert("⚠️ Todos los correos detectados en el Excel ya estaban autorizados.");
-                setIsProcessing(false);
-                return;
-            }
-
-            const confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.\n¿Desea darles acceso a la puerta "${door.name}" (junto con ${door.grantDays ?? 0} días de gracia inicial)?`;
-            if (!window.confirm(confirmMsg)) {
-                setIsProcessing(false);
-                return;
-            }
-
-            const mergedEmails = [...currentEmails, ...emailsToAdd];
-            await FirebaseService.updateDoor(door.id, { allowedEmails: mergedEmails });
-
-            const grace = door.grantDays || 0;
-            if (grace > 0) {
-                for (const email of emailsToAdd) {
-                    await UserService.grantDefaultLicenseByEmail(email, door.id);
-                }
-            }
-
-            alert(`✅ ${emailsToAdd.length} nuevos usuarios autorizados.`);
-            await loadUsers();
-        } catch (error) {
-            console.error("Error leyendo Excel:", error);
-            alert("❌ Error procesando el archivo: " + error.message);
-        } finally {
-            setIsProcessing(false);
-            e.target.value = null;
-        }
-    };
 
     if (loading) return <div style={{ padding: '20px', color: '#fff', textAlign: 'center' }}>Cargando usuarios...</div>;
 
@@ -404,80 +280,6 @@ export default function AdminUsersScreen({ devices, onBack }) {
                 </button>
             </div>
 
-            {/* FORMULARIO DE AUTORIZACIÓN */}
-            <form onSubmit={handleAuthorize} style={{
-                background: 'rgba(255,255,255,0.05)',
-                padding: '15px',
-                borderRadius: '12px',
-                marginBottom: '20px',
-                border: '1px solid rgba(255,255,255,0.1)'
-            }}>
-                <h3 style={{ fontSize: '0.9em', marginBottom: '12px', color: '#999' }}>Autorizar Nuevo Usuario</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <input
-                        type="email"
-                        placeholder="Email del usuario"
-                        value={emailToAdd}
-                        onChange={(e) => setEmailToAdd(e.target.value)}
-                        style={{
-                            background: 'rgba(0,0,0,0.3)',
-                            border: '1px solid #444',
-                            color: '#fff',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            boxSizing: 'border-box',
-                            width: '100%'
-                        }}
-                    />
-                    <select
-                        value={selectedDoorId}
-                        onChange={(e) => setSelectedDoorId(e.target.value)}
-                        style={{
-                            background: 'rgba(0,0,0,0.3)',
-                            border: '1px solid #444',
-                            color: '#fff',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            width: '100%'
-                        }}
-                    >
-                        <option value="">Selecciona Puerta</option>
-                        {doors.map(d => (
-                            <option key={d.id} value={d.id}>{d.name} ({d.grantDays ?? 0} días gracia)</option>
-                        ))}
-                    </select>
-                    <button
-                        type="submit"
-                        disabled={isProcessing || !emailToAdd || !selectedDoorId}
-                        style={{
-                            background: '#2ecc71',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            opacity: isProcessing ? 0.5 : 1
-                        }}
-                    >
-                        {isProcessing ? 'Procesando...' : 'Autorizar'}
-                    </button>
-
-                    <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px dotted rgba(255,255,255,0.1)' }}>
-                        <div style={{ fontSize: '0.8em', color: '#2ecc71', marginBottom: '8px', fontWeight: 'bold' }}>📄 Importación Masiva (Excel / CSV):</div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <input
-                                type="file"
-                                accept=".xlsx, .xls, .csv"
-                                onChange={handleExcelImport}
-                                style={{ flex: 1, fontSize: '0.75em', padding: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#ccc', cursor: 'pointer' }}
-                                disabled={isProcessing}
-                            />
-                        </div>
-                        <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Selecciona una puerta y sube tu archivo. El sistema agregará todos los correos del documento.</div>
-                    </div>
-                </div>
-            </form>
 
             {/* FILTRO POR PUERTA + EXPORTAR + LISTA */}
             <div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebase';
 import { UserService } from '../services/userService';
+import * as XLSX from 'xlsx';
 
 export default function ConfigScreen({
     userRole, devices, onSaveDevice, onUpdateDevice, onDeleteDevice,
@@ -147,6 +148,63 @@ export default function ConfigScreen({
             ...formData,
             allowedEmails: formData.allowedEmails.filter(e => e !== email)
         });
+    };
+
+    const handleExcelImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const foundEmails = new Set();
+            json.forEach(row => {
+                if (Array.isArray(row)) {
+                    row.forEach(cell => {
+                        const str = String(cell).trim().toLowerCase();
+                        if (emailRegex.test(str)) {
+                            foundEmails.add(str);
+                        }
+                    });
+                }
+            });
+
+            const newEmails = Array.from(foundEmails);
+            if (newEmails.length === 0) {
+                alert("❌ No se encontraron correos válidos en el archivo Excel.");
+                return;
+            }
+
+            const currentEmails = formData.allowedEmails || [];
+            const emailsToAdd = newEmails.filter(em => !currentEmails.includes(em));
+
+            if (emailsToAdd.length === 0) {
+                alert("⚠️ Todos los correos detectados en el Excel ya están en la lista actual de autorizados.");
+                return;
+            }
+
+            const confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.\n¿Desea agregarlos a la lista de correos autorizados de esta puerta?`;
+            if (!window.confirm(confirmMsg)) {
+                return;
+            }
+
+            setFormData(prev => ({
+                ...prev,
+                allowedEmails: [...prev.allowedEmails, ...emailsToAdd]
+            }));
+
+            alert(`✅ ${emailsToAdd.length} correos agregados a la lista local. Asegúrate de guardar los cambios al final de la edición.`);
+
+        } catch (error) {
+            console.error("Error leyendo Excel:", error);
+            alert("❌ Error procesando el archivo: " + error.message);
+        } finally {
+            e.target.value = null;
+        }
     };
 
     const addValidatorEmail = () => {
@@ -487,7 +545,18 @@ export default function ConfigScreen({
 
                         {/* GESTIÓN DE EMAILS AUTORIZADOS */}
                         <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '15px' }}>
-                            <label style={{ display: 'block', fontSize: '0.9em', color: '#3498db', marginBottom: '10px', fontWeight: 'bold' }}>📧 Emails Autorizados:</label>
+                            <div style={{ display: 'flex', flexDirection: 'column', marginBottom: '15px' }}>
+                                <label style={{ display: 'block', fontSize: '0.9em', color: '#3498db', fontWeight: 'bold', margin: '0 0 10px 0' }}>📧 Emails Autorizados:</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                                    <span style={{ fontSize: '0.8em', color: '#888', whiteSpace: 'nowrap' }}>Masiva (Excel):</span>
+                                    <input
+                                        type="file"
+                                        accept=".xlsx, .xls, .csv"
+                                        onChange={handleExcelImport}
+                                        style={{ flex: 1, minWidth: '0', fontSize: '0.85em', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#ccc', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                    />
+                                </div>
+                            </div>
                             <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
                                 <input
                                     type="email"
