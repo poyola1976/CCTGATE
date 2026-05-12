@@ -35,7 +35,7 @@ export default function UnlockButton({ onUnlock, disabled, onlineState = 'online
     // Texto del botón según estado de conexión
     const getLabel = () => {
         if (status === 'loading') return "ABRIENDO...";
-        if (status === 'success') return "ABIERTO";
+        if (status === 'success') return "";
         if (status === 'error') return "ERROR";
 
         if (onlineState === 'checking') return "CONECTANDO...";
@@ -57,7 +57,12 @@ export default function UnlockButton({ onUnlock, disabled, onlineState = 'online
                     {status === 'idle' && onlineState === 'checking' && <div className="spinner mini"></div>}
 
                     {status === 'loading' && <div className="spinner"></div>}
-                    {status === 'success' && <span className="material-icon">✅</span>}
+                    {status === 'success' && (
+                        <svg className="material-icon" xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 0 24 24" width="48px" fill="#FFFFFF" style={{ filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.5))' }}>
+                            <path d="M0 0h24v24H0V0z" fill="none" />
+                            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+                        </svg>
+                    )}
                     {status === 'error' && <span className="material-icon">❌</span>}
                 </div>
                 <span className="label">
