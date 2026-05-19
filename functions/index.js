@@ -240,6 +240,43 @@ exports.checkDoors = onSchedule({
     }
 });
 
+// --- LIMPIEZA AUTOMÁTICA DE LOGS (TTL 60 días) ---
+exports.cleanOldLogs = onSchedule({
+    schedule: "every 24 hours",
+    timeoutSeconds: 120,
+    memory: "256MiB"
+}, async (event) => {
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const cutoff = admin.firestore.Timestamp.fromDate(sixtyDaysAgo);
+
+    console.log(`🧹 Limpiando logs anteriores a: ${sixtyDaysAgo.toISOString()}`);
+
+    let totalDeleted = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+        const snap = await db.collection('access_logs')
+            .where('timestamp', '<', cutoff)
+            .limit(400)
+            .get();
+
+        if (snap.empty) {
+            hasMore = false;
+            break;
+        }
+
+        const batch = db.batch();
+        snap.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        totalDeleted += snap.size;
+
+        if (snap.size < 400) hasMore = false;
+    }
+
+    console.log(`✅ Logs eliminados: ${totalDeleted}`);
+});
+
 exports.verifyTuyaCredentials = onCall(async (request) => {
     return { success: true, online: true };
 });

@@ -5,6 +5,8 @@ import { FirebaseService } from '../services/firebase';
 import { UserService } from '../services/userService';
 import flvjs from 'flv.js';
 import Hls from 'hls.js';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing }) {
     // Cálculo de Precios Dinámicos
@@ -67,6 +69,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const [validatorGraceDays, setValidatorGraceDays] = useState(30);
     const [validatorPanelUsers, setValidatorPanelUsers] = useState({});
     const [validatorLoading, setValidatorLoading] = useState(false);
+    const [logsLoading, setLogsLoading] = useState(false);
 
     // --- LÓGICA DE LICENCIA PARA EL ÍCONO ---
     const getLicenseInfo = () => {
@@ -154,6 +157,67 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             }
         }
         setShowUsers(!showUsers);
+    };
+
+    // --- HANDLERS DE LOGS: EXPORTAR PDF Y BORRADO ---
+    const handleExportPdf = async () => {
+        setLogsLoading(true);
+        try {
+            const allLogs = await FirebaseService.getAllLogsForDoor(device.id);
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            doc.setFontSize(16);
+            doc.text(`Historial de Accesos: ${device.name}`, 14, 18);
+            doc.setFontSize(9);
+            doc.setTextColor(150);
+            doc.text(`Exportado: ${new Date().toLocaleString()} — Total: ${allLogs.length} registros`, 14, 25);
+
+            autoTable(doc, {
+                startY: 30,
+                head: [['#', 'Usuario / Email', 'Acción', 'Fecha y Hora']],
+                body: allLogs.map((log, i) => [
+                    i + 1,
+                    log.userEmail || log.userName || '—',
+                    log.action || 'APERTURA',
+                    log.timestamp?.seconds
+                        ? new Date(log.timestamp.seconds * 1000).toLocaleString()
+                        : 'Reciente'
+                ]),
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [46, 204, 113] },
+                alternateRowStyles: { fillColor: [245, 245, 245] }
+            });
+
+            const filename = `CCTGATE_${device.name.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+            doc.save(filename);
+        } catch (e) {
+            alert('❌ Error generando PDF: ' + e.message);
+        } finally {
+            setLogsLoading(false);
+        }
+    };
+
+    const handleForceDeleteLogs = async () => {
+        const confirmed = window.confirm(
+            `⚠️ ¿Estás SEGURO que deseas eliminar PERMANENTEMENTE todo el historial de "${device.name}"?\n\nEsta acción no se puede deshacer.`
+        );
+        if (!confirmed) return;
+
+        const typed = window.prompt('Para confirmar, escribe exactamente: ELIMINAR');
+        if (typed?.trim() !== 'ELIMINAR') {
+            alert('Operación cancelada. El texto no coincide.');
+            return;
+        }
+
+        setLogsLoading(true);
+        try {
+            const total = await FirebaseService.deleteAllLogsForDoor(device.id);
+            setLogs([]);
+            alert(`✅ ${total} registros eliminados correctamente.`);
+        } catch (e) {
+            alert('❌ Error eliminando registros: ' + e.message);
+        } finally {
+            setLogsLoading(false);
+        }
     };
 
     // --- HANDLERS DEL PANEL DE VALIDADOR ---
@@ -548,11 +612,48 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
             {showLogs && (
                 <div style={logsAreaStyle}>
-                    {logs.length === 0 ? <p>No hay registros.</p> : (
-                        <table style={{ width: '100%', fontSize: '0.8em' }}>
-                            <thead><tr><th>#</th><th>Usuario</th><th>Fecha</th></tr></thead>
+                    {/* CABECERA DE ACCIONES */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+                        <span style={{ fontSize: '0.75em', color: '#aaa' }}>
+                            Últimos 20 registros · Historial completo vía PDF
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            {(isAdmin || isValidatorForDoor) && (
+                                <button
+                                    onClick={handleExportPdf}
+                                    disabled={logsLoading}
+                                    style={{ padding: '5px 10px', background: 'rgba(52,152,219,0.2)', border: '1px solid #3498db', color: '#3498db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75em', fontWeight: 'bold' }}
+                                >
+                                    {logsLoading ? '...' : '📥 Exportar PDF'}
+                                </button>
+                            )}
+                            {isAdmin && (
+                                <button
+                                    onClick={handleForceDeleteLogs}
+                                    disabled={logsLoading}
+                                    style={{ padding: '5px 10px', background: 'rgba(231,76,60,0.15)', border: '1px solid #e74c3c', color: '#e74c3c', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75em', fontWeight: 'bold' }}
+                                >
+                                    🗑️ Borrar historial
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    {/* TABLA */}
+                    {logs.length === 0 ? <p style={{ color: '#888', fontSize: '0.82em', textAlign: 'center', margin: '10px 0' }}>No hay registros.</p> : (
+                        <table style={{ width: '100%', fontSize: '0.8em', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <th style={{ textAlign: 'left', padding: '4px 6px', color: '#aaa', fontWeight: 'normal' }}>#</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 6px', color: '#aaa', fontWeight: 'normal' }}>Usuario</th>
+                                    <th style={{ textAlign: 'left', padding: '4px 6px', color: '#aaa', fontWeight: 'normal' }}>Fecha</th>
+                                </tr>
+                            </thead>
                             <tbody>{logs.map((log, i) => (
-                                <tr key={log.id}><td>{i + 1}</td><td>{log.userEmail}</td><td>{log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}</td></tr>
+                                <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <td style={{ padding: '4px 6px', color: '#666' }}>{i + 1}</td>
+                                    <td style={{ padding: '4px 6px', color: '#ddd' }}>{log.userEmail || log.userName || '—'}</td>
+                                    <td style={{ padding: '4px 6px', color: '#888' }}>{log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleString() : 'Reciente'}</td>
+                                </tr>
                             ))}</tbody>
                         </table>
                     )}

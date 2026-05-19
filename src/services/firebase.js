@@ -21,7 +21,8 @@ import {
     limit,
     getDocs,
     serverTimestamp,
-    connectFirestoreEmulator
+    connectFirestoreEmulator,
+    writeBatch
 } from 'firebase/firestore';
 import {
     getAuth,
@@ -253,11 +254,16 @@ export const FirebaseService = {
     getLogsForDoor: async (doorId, limitCount = 20) => {
         if (!db) return [];
         try {
+            const sixtyDaysAgo = new Date();
+            sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+            const { Timestamp } = await import('firebase/firestore');
+            const cutoff = Timestamp.fromDate(sixtyDaysAgo);
             // Añadimos orderBy para obtener siempre los 20 más recientes. 
             // ⚠️ REQUIERE ÍNDICE Compuesto (doorId ASC, timestamp DESC) en la consola de Firebase.
             const q = query(
                 collection(db, LOGS_COLLECTION),
                 where('doorId', '==', doorId),
+                where('timestamp', '>=', cutoff),
                 orderBy('timestamp', 'desc'),
                 limit(limitCount)
             );
@@ -274,6 +280,54 @@ export const FirebaseService = {
 
         } catch (e) {
             console.error("Error fetching logs:", e);
+            return [];
+        }
+    },
+
+    deleteAllLogsForDoor: async (doorId) => {
+        if (!db) return 0;
+        let hasMore = true;
+        let totalDeleted = 0;
+        while (hasMore) {
+            const snap = await getDocs(query(
+                collection(db, LOGS_COLLECTION),
+                where('doorId', '==', doorId),
+                limit(400)
+            ));
+            if (snap.empty) { hasMore = false; break; }
+            const batch = writeBatch(db);
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            totalDeleted += snap.size;
+            if (snap.size < 400) hasMore = false;
+        }
+        return totalDeleted;
+    },
+
+    getAllLogsForDoor: async (doorId) => {
+        if (!db) return [];
+        try {
+            const sixtyDaysAgo = new Date();
+            sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+            const { Timestamp } = await import('firebase/firestore');
+            const cutoff = Timestamp.fromDate(sixtyDaysAgo);
+            const q = query(
+                collection(db, LOGS_COLLECTION),
+                where('doorId', '==', doorId),
+                where('timestamp', '>=', cutoff),
+                orderBy('timestamp', 'desc')
+            );
+            const snap = await getDocs(q);
+            const getSeconds = (ts) => {
+                if (!ts) return 0;
+                if (ts instanceof Date) return ts.getTime() / 1000;
+                return ts.seconds || 0;
+            };
+            return snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => getSeconds(b.timestamp) - getSeconds(a.timestamp));
+        } catch (e) {
+            console.error('Error getAllLogsForDoor:', e);
             return [];
         }
     },
