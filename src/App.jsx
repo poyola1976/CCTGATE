@@ -91,7 +91,7 @@ function App() {
           console.error("Error fetching role", e);
           if (e.message === 'UNAUTHORIZED_REGISTRATION') {
             console.warn("Usuario no autorizado detectado en App.jsx. Eliminando...");
-            sessionStorage.setItem('auth_error', 'Usuario sin permiso para registrarse. Contactar al administrador.');
+            sessionStorage.setItem('auth_error', 'PENDING_VALIDATION');
             // Borrar usuario. Esto disparará onAuthStateChanged nuevamente con null.
             await currentUser.delete().catch(err => console.error("Error deleting unauthorized user", err));
             // NO seteamos user(currentUser), así que LoginScreen sigue montado (o se remonta con error)

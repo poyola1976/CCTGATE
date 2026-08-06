@@ -21,8 +21,20 @@ export default function ConfigScreen({
         associatedCameraId: '',
         generation: 'gen4',
         grantDays: 0,
-        customImage: ''
+        customImage: '',
+        billingMode: 'usuario',
+        condominioExpiry: '',
+        condominioWarnDays: '',
+        condominioGraceDays: '',
+        maxUsers: 20
     });
+
+    const [condominioSettings, setCondominioSettings] = useState({ warnDays: 15, graceDays: 30 });
+    const [savingCondSettings, setSavingCondSettings] = useState(false);
+
+    useEffect(() => {
+        FirebaseService.getCondominioSettings().then(s => setCondominioSettings(s));
+    }, []);
 
     const existingGroups = [...new Set(doors.map(d => d.group).filter(Boolean))];
     const [isNewGroupMode, setIsNewGroupMode] = useState(false);
@@ -83,7 +95,14 @@ export default function ConfigScreen({
             associatedCameraId: device.associatedCameraId || '',
             generation: device.generation || 'gen1',
             grantDays: device.grantDays ?? 0,
-            customImage: device.customImage || ''
+            customImage: device.customImage || '',
+            billingMode: device.billingMode || 'usuario',
+            condominioExpiry: device.condominioExpiry?.seconds
+                ? new Date(device.condominioExpiry.seconds * 1000).toISOString().split('T')[0]
+                : '',
+            condominioWarnDays: device.condominioWarnDays ?? '',
+            condominioGraceDays: device.condominioGraceDays ?? '',
+            maxUsers: device.maxUsers ?? 20
         });
         setEditingId(device.id);
         window.scroll({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -102,7 +121,12 @@ export default function ConfigScreen({
             associatedCameraId: '',
             generation: 'gen4',
             grantDays: 0,
-            customImage: ''
+            customImage: '',
+            billingMode: 'usuario',
+            condominioExpiry: '',
+            condominioWarnDays: '',
+            condominioGraceDays: '',
+            maxUsers: 20
         });
         setNewEmail('');
         setNewValidatorEmail('');
@@ -128,6 +152,12 @@ export default function ConfigScreen({
     const addEmail = () => {
         const email = newEmail.trim().toLowerCase();
         if (!email) return;
+
+        const limit = parseInt(formData.maxUsers) || 20;
+        if (formData.allowedEmails.length >= limit) {
+            alert(`⚠️ Esta puerta tiene un límite de ${limit} usuarios. Ajusta el máximo en la configuración para agregar más.`);
+            return;
+        }
 
         if (formData.allowedEmails.includes(email)) {
             alert(`⚠️ El correo ${email} ya está en la lista de autorizados.`);
@@ -187,17 +217,36 @@ export default function ConfigScreen({
                 return;
             }
 
-            const confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.\n¿Desea agregarlos a la lista de correos autorizados de esta puerta?`;
+            const limit = parseInt(formData.maxUsers) || 20;
+            const availableSlots = limit - currentEmails.length;
+
+            if (availableSlots <= 0) {
+                alert(`⚠️ Esta puerta ya alcanzó el límite de ${limit} usuarios. Ajusta el máximo antes de importar.`);
+                return;
+            }
+
+            const emailsToImport = emailsToAdd.slice(0, availableSlots);
+            const truncated = emailsToAdd.length > availableSlots;
+
+            let confirmMsg = `Se detectaron ${emailsToAdd.length} correos nuevos en el archivo.`;
+            if (truncated) {
+                confirmMsg += `\n\n⚠️ Solo se pueden agregar ${availableSlots} (límite: ${limit} usuarios). Los ${emailsToAdd.length - availableSlots} restantes serán ignorados.`;
+            }
+            confirmMsg += `\n\n¿Deseas continuar?`;
+
             if (!window.confirm(confirmMsg)) {
                 return;
             }
 
             setFormData(prev => ({
                 ...prev,
-                allowedEmails: [...prev.allowedEmails, ...emailsToAdd]
+                allowedEmails: [...prev.allowedEmails, ...emailsToImport]
             }));
 
-            alert(`✅ ${emailsToAdd.length} correos agregados a la lista local. Asegúrate de guardar los cambios al final de la edición.`);
+            const msg = truncated
+                ? `✅ ${emailsToImport.length} correos agregados. Se omitieron ${emailsToAdd.length - emailsToImport.length} por límite de usuarios.`
+                : `✅ ${emailsToImport.length} correos agregados. Recuerda guardar los cambios.`;
+            alert(msg);
 
         } catch (error) {
             console.error("Error leyendo Excel:", error);
@@ -258,7 +307,18 @@ export default function ConfigScreen({
                 associatedCameraId: formData.associatedCameraId,
                 generation: formData.generation || 'gen1',
                 grantDays: parseInt(formData.grantDays) || 0,
-                customImage: formData.customImage || ''
+                customImage: formData.customImage || '',
+                maxUsers: parseInt(formData.maxUsers) || 20,
+                billingMode: formData.billingMode || 'usuario',
+                condominioExpiry: formData.billingMode === 'condominio' && formData.condominioExpiry
+                    ? new Date(formData.condominioExpiry + 'T23:59:59')
+                    : null,
+                condominioWarnDays: formData.billingMode === 'condominio' && formData.condominioWarnDays !== ''
+                    ? parseInt(formData.condominioWarnDays)
+                    : null,
+                condominioGraceDays: formData.billingMode === 'condominio' && formData.condominioGraceDays !== ''
+                    ? parseInt(formData.condominioGraceDays)
+                    : null
             };
 
             if (editingId) {
@@ -416,6 +476,13 @@ export default function ConfigScreen({
                                     }}>{d.deviceId}</span>
                                     <div style={{ marginTop: '8px', fontSize: '0.75em', color: '#2ecc71' }}>
                                         🎁 Días de Gracia: {d.grantDays ?? 0}
+                                    </div>
+                                    <div style={{ marginTop: '4px', fontSize: '0.75em' }}>
+                                        <span style={{
+                                            color: (d.allowedEmails?.length ?? 0) >= (d.maxUsers ?? 20) ? '#e74c3c' : '#aaa'
+                                        }}>
+                                            👥 {d.allowedEmails?.length ?? 0} / {d.maxUsers ?? 20} usuarios
+                                        </span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -711,6 +778,98 @@ export default function ConfigScreen({
                             </div>
                         </div>
 
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '5px' }}>
+                                Máximo de usuarios permitidos:
+                                <span style={{ color: formData.allowedEmails.length >= (parseInt(formData.maxUsers) || 20) ? '#e74c3c' : '#2ecc71', marginLeft: '8px', fontWeight: 'bold' }}>
+                                    {formData.allowedEmails.length} / {parseInt(formData.maxUsers) || 20}
+                                </span>
+                            </label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="500"
+                                value={formData.maxUsers}
+                                onChange={(e) => setFormData({ ...formData, maxUsers: e.target.value })}
+                                style={inputStyle}
+                                placeholder="20"
+                            />
+                            <p style={{ fontSize: '0.7em', color: '#666', marginTop: '4px' }}>
+                                Límite de correos autorizados para esta puerta. Por defecto: 20.
+                            </p>
+                        </div>
+
+                        {/* MODO DE COBRO */}
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '15px', marginTop: '5px' }}>
+                            <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '8px' }}>Modo de cobro:</label>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                                {['usuario', 'condominio'].map(mode => (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, billingMode: mode })}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px',
+                                            borderRadius: '8px',
+                                            border: `1px solid ${formData.billingMode === mode ? '#e8701a' : 'rgba(255,255,255,0.15)'}`,
+                                            background: formData.billingMode === mode ? 'rgba(232,112,26,0.15)' : 'rgba(255,255,255,0.05)',
+                                            color: formData.billingMode === mode ? '#e8701a' : '#aaa',
+                                            fontWeight: formData.billingMode === mode ? 'bold' : 'normal',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8em'
+                                        }}
+                                    >
+                                        {mode === 'usuario' ? '👤 Por usuario' : '🏢 Condominio'}
+                                    </button>
+                                ))}
+                            </div>
+                            {formData.billingMode === 'condominio' && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8em', color: '#888', marginBottom: '5px' }}>Fecha de vencimiento suscripción:</label>
+                                    <input
+                                        type="date"
+                                        value={formData.condominioExpiry}
+                                        onChange={(e) => setFormData({ ...formData, condominioExpiry: e.target.value })}
+                                        style={inputStyle}
+                                    />
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px' }}>
+                                                Días de aviso <span style={{ color: '#666' }}>(por defecto: {condominioSettings.warnDays})</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="60"
+                                                placeholder={condominioSettings.warnDays}
+                                                value={formData.condominioWarnDays}
+                                                onChange={(e) => setFormData({ ...formData, condominioWarnDays: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px' }}>
+                                                Días de gracia <span style={{ color: '#666' }}>(por defecto: {condominioSettings.graceDays})</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="180"
+                                                placeholder={condominioSettings.graceDays}
+                                                value={formData.condominioGraceDays}
+                                                onChange={(e) => setFormData({ ...formData, condominioGraceDays: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                    </div>
+                                    <p style={{ fontSize: '0.7em', color: '#666', marginTop: '6px' }}>
+                                        Deja en blanco para usar los plazos globales ({condominioSettings.warnDays} / {condominioSettings.graceDays} días)
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
                         {/* CÁMARAS ASOCIADAS */}
                         {cameras && cameras.length > 0 && (
                             <div>
@@ -768,6 +927,60 @@ export default function ConfigScreen({
                     </form>
                 </div>
             </>)}
+
+            {/* ======================== PLAZOS CONDOMINIO ======================== */}
+            {activeTab === 'doors' && (
+                <div style={{
+                    background: 'rgba(232,112,26,0.07)',
+                    border: '1px solid rgba(232,112,26,0.25)',
+                    borderRadius: '14px',
+                    padding: '18px',
+                    marginTop: '10px'
+                }}>
+                    <h4 style={{ color: '#e8701a', margin: '0 0 14px', fontSize: '0.9em' }}>⚙️ Plazos de suscripción condominio</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.75em', color: '#aaa', marginBottom: '5px' }}>Días de aviso antes del vencimiento</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="60"
+                                value={condominioSettings.warnDays}
+                                onChange={(e) => setCondominioSettings({ ...condominioSettings, warnDays: parseInt(e.target.value) || 15 })}
+                                style={{ width: '100%', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', fontSize: '0.9em' }}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.75em', color: '#aaa', marginBottom: '5px' }}>Días de gracia antes del bloqueo</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="90"
+                                value={condominioSettings.graceDays}
+                                onChange={(e) => setCondominioSettings({ ...condominioSettings, graceDays: parseInt(e.target.value) || 30 })}
+                                style={{ width: '100%', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', fontSize: '0.9em' }}
+                            />
+                        </div>
+                    </div>
+                    <button
+                        disabled={savingCondSettings}
+                        onClick={async () => {
+                            setSavingCondSettings(true);
+                            try {
+                                await FirebaseService.updateCondominioSettings(condominioSettings);
+                                alert('✅ Plazos actualizados.');
+                            } catch (e) {
+                                alert('Error: ' + e.message);
+                            } finally {
+                                setSavingCondSettings(false);
+                            }
+                        }}
+                        style={{ background: '#e8701a', border: 'none', color: '#fff', padding: '8px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8em' }}
+                    >
+                        {savingCondSettings ? 'Guardando...' : 'Guardar plazos'}
+                    </button>
+                </div>
+            )}
 
             {/* ======================== TAB CÁMARAS ======================== */}
             {activeTab === 'cameras' && (

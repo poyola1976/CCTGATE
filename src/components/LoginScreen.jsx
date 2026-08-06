@@ -101,21 +101,30 @@ export default function LoginScreen({ onLogin }) {
             }
         } catch (err) {
             console.error(mode + " error", err);
-            let msg = err.message;
+            let msg = null;
 
-            // Verificar si el error real está en sessionStorage (puesto por App.jsx)
-            const storedAuthError = sessionStorage.getItem('auth_error');
-            if (storedAuthError) {
-                msg = storedAuthError;
-            } else if (err.message === 'UNAUTHORIZED_REGISTRATION') {
-                msg = "Usuario sin permiso para registrarse. Contactar al administrador.";
-                sessionStorage.setItem('auth_error', msg);
+            // Primero: códigos de error específicos de Firebase (tienen prioridad)
+            if (err.code === 'auth/email-already-in-use') msg = "Este correo ya tiene una cuenta. Intenta iniciar sesión.";
+            else if (err.code === 'auth/weak-password') msg = "La contraseña debe tener al menos 6 caracteres.";
+            else if (err.code === 'auth/user-not-found') msg = "Correo no encontrado. Verifica o regístrate.";
+            else if (err.code === 'auth/wrong-password') msg = "Contraseña incorrecta.";
+            else if (err.code === 'auth/invalid-credential') msg = "Correo o contraseña incorrectos.";
+            else if (err.code === 'auth/invalid-email') msg = "El formato del correo no es válido.";
+            else if (err.code === 'auth/too-many-requests') msg = "Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.";
+
+            // Segundo: errores internos de la app (registro rechazado por App.jsx)
+            if (!msg) {
+                const storedAuthError = sessionStorage.getItem('auth_error');
+                if (storedAuthError) {
+                    msg = storedAuthError;
+                } else if (err.message === 'UNAUTHORIZED_REGISTRATION') {
+                    msg = 'PENDING_VALIDATION';
+                    sessionStorage.setItem('auth_error', msg);
+                }
             }
 
-            if (err.code === 'auth/email-already-in-use') msg = "Este correo ya existe (Auth). Intenta INICIAR SESIÓN.";
-            if (err.code === 'auth/weak-password') msg = "La contraseña debe tener al menos 6 caracteres.";
-            if (err.code === 'auth/user-not-found') msg = "Usuario no encontrado (probablemente rechazado).";
-            if (err.code === 'auth/wrong-password') msg = "Contraseña incorrecta.";
+            // Fallback genérico
+            if (!msg) msg = "Error al iniciar sesión. Verifica tus datos e intenta nuevamente.";
 
             setError(msg);
         } finally {
@@ -135,12 +144,15 @@ export default function LoginScreen({ onLogin }) {
             background: '#1a1a1a',
             color: '#fff'
         }}>
-            {error && error.includes("permiso") ? (
-                <div className="card" style={{ maxWidth: '400px', width: '100%', padding: '2rem', background: '#222', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', textAlign: 'center' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⛔</div>
-                    <h2 style={{ marginBottom: '1rem', color: '#e74c3c' }}>Acceso Denegado</h2>
-                    <p style={{ color: '#ccc', marginBottom: '2rem', lineHeight: '1.5' }}>
-                        {error}
+            {error === 'PENDING_VALIDATION' ? (
+                <div style={{ maxWidth: '400px', width: '100%', padding: '2rem', background: '#222', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⏳</div>
+                    <h2 style={{ marginBottom: '1rem', color: '#f59e0b' }}>Cuenta pendiente de validación</h2>
+                    <p style={{ color: '#ccc', marginBottom: '0.75rem', lineHeight: '1.6' }}>
+                        Tu cuenta aún no ha sido habilitada por el administrador.
+                    </p>
+                    <p style={{ color: '#aaa', marginBottom: '2rem', lineHeight: '1.6', fontSize: '0.9em' }}>
+                        Por favor, comunícate con el administrador del sistema para solicitar el acceso.
                     </p>
                     <button
                         onClick={() => {
@@ -158,7 +170,7 @@ export default function LoginScreen({ onLogin }) {
                             fontSize: '1rem'
                         }}
                     >
-                        Volver al Inicio
+                        Volver al inicio
                     </button>
                 </div>
             ) : (

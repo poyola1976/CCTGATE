@@ -36,10 +36,25 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         connectionState = 'busy';
     }
 
+    const isCondominio = device.billingMode === 'condominio';
+
+    // --- SETTINGS CONDOMINIO (globales como fallback) ---
+    const [globalCondSettings, setGlobalCondSettings] = useState({ warnDays: 15, graceDays: 30 });
+    useEffect(() => {
+        if (isCondominio && (device.condominioWarnDays == null || device.condominioGraceDays == null)) {
+            FirebaseService.getCondominioSettings().then(s => setGlobalCondSettings(s));
+        }
+    }, [isCondominio, device.condominioWarnDays, device.condominioGraceDays]);
+
+    const effectiveWarnDays = device.condominioWarnDays ?? globalCondSettings.warnDays;
+    const effectiveGraceDays = device.condominioGraceDays ?? globalCondSettings.graceDays;
+
     // --- CHECK DE LICENCIA ---
-    const accessCheck = (!isAdmin && userProfile)
-        ? UserService.checkUserAccess(userProfile, device.id)
-        : { allowed: true };
+    const accessCheck = isAdmin
+        ? { allowed: true, status: 'active' }
+        : isCondominio
+            ? UserService.checkCondominioAccess(device, effectiveWarnDays, effectiveGraceDays)
+            : (userProfile ? UserService.checkUserAccess(userProfile, device.id) : { allowed: false, status: 'blocked' });
 
     const [showCamera, setShowCamera] = useState(false);
     const [streamStatus, setStreamStatus] = useState('init'); // init, loading, playing, error
@@ -75,6 +90,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const getLicenseInfo = () => {
         if (isAdmin || (userProfile && (userProfile.role === 'admin' || userProfile.role === 'validador'))) {
             return { color: '#2ecc71', daysLeft: 999, statusText: 'Permanente' };
+        }
+
+        if (isCondominio) {
+            if (accessCheck.status === 'blocked') return { color: '#ff0000', daysLeft: 0, statusText: 'Suspendida' };
+            if (accessCheck.status === 'warning') return { color: '#ffff00', daysLeft: accessCheck.daysLeft, statusText: 'Por vencer' };
+            return { color: '#2ecc71', daysLeft: 999, statusText: 'Condominio' };
         }
 
         if (!userProfile) return { color: '#e74c3c', daysLeft: 0, statusText: 'No registrado' };
@@ -463,7 +484,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     </button>
                 )}
 
-                {(userProfile || isAdmin || isValidatorForDoor) && (
+                {(userProfile || isAdmin || isValidatorForDoor) && !isCondominio && (
                     <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
                         <button
                             onClick={() => setShowLicenseModal(true)}
@@ -524,6 +545,26 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             {connectionState === 'offline' && (
                 <div style={{ marginTop: '10px', textAlign: 'center' }}>
                     <span style={{ fontSize: '0.7em', color: '#ff0000' }}>Offline: {offlineReason}</span>
+                </div>
+            )}
+
+            {isCondominio && accessCheck.status === 'warning' && (
+                <div style={{
+                    marginTop: '10px', padding: '10px 12px', borderRadius: '8px',
+                    background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)',
+                    color: '#f59e0b', fontSize: '0.78em', lineHeight: 1.5
+                }}>
+                    ⚠️ {accessCheck.message}
+                </div>
+            )}
+
+            {isCondominio && accessCheck.status === 'blocked' && (
+                <div style={{
+                    marginTop: '10px', padding: '10px 12px', borderRadius: '8px',
+                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
+                    color: '#ef4444', fontSize: '0.78em', lineHeight: 1.5
+                }}>
+                    🔒 {accessCheck.message}
                 </div>
             )}
 

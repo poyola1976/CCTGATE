@@ -218,6 +218,26 @@ export const UserService = {
         console.log(`Licencia de ${days} dias otorgada a ${email} para device ${deviceId}`);
     },
 
+    checkCondominioAccess: (device, warnDays = 15, graceDays = 30) => {
+        if (!device.condominioExpiry) return { allowed: true, status: 'active', message: 'Suscripción activa' };
+
+        const now = new Date();
+        const expiry = new Date(device.condominioExpiry.seconds * 1000);
+        const blockDate = new Date(expiry);
+        blockDate.setDate(blockDate.getDate() + graceDays);
+        const warnDate = new Date(expiry);
+        warnDate.setDate(warnDate.getDate() - warnDays);
+
+        if (now > blockDate) {
+            return { allowed: false, status: 'blocked', message: `Suscripción vencida. Contacta al administrador.` };
+        }
+        const daysLeft = Math.ceil((blockDate - now) / (1000 * 60 * 60 * 24));
+        if (now >= warnDate) {
+            return { allowed: true, status: 'warning', message: `Suscripción vence pronto. Quedan ${daysLeft} días.`, daysLeft };
+        }
+        return { allowed: true, status: 'active', message: 'Suscripción activa' };
+    },
+
     checkUserAccess: (user, deviceId) => {
         const now = new Date();
 

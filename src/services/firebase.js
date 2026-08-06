@@ -233,6 +233,25 @@ export const FirebaseService = {
         if (!db) throw new Error("Firebase no configurado");
         return await setDoc(doc(db, 'config', 'pricing'), pricingData, { merge: true });
     },
+
+    getCondominioSettings: async () => {
+        if (!db) return { warnDays: 15, graceDays: 30 };
+        const snap = await getDocs(query(collection(db, 'settings')));
+        const doc_ = snap.docs.find(d => d.id === 'global');
+        const data = doc_ ? doc_.data() : {};
+        return {
+            warnDays: data.condominioWarnDays ?? 15,
+            graceDays: data.condominioGraceDays ?? 30
+        };
+    },
+
+    updateCondominioSettings: async ({ warnDays, graceDays }) => {
+        if (!db) throw new Error("Firebase no configurado");
+        return await setDoc(doc(db, 'settings', 'global'), {
+            condominioWarnDays: warnDays,
+            condominioGraceDays: graceDays
+        }, { merge: true });
+    },
     addAccessLog: async (logData) => {
         if (!db) return;
         // Usamos serverTimestamp() de Firestore para garantizar tipo Timestamp correcto
