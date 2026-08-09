@@ -340,6 +340,28 @@ export default function ConfigScreen({
         }
     };
 
+    const handleToggleEnabled = async (doorId, currentEnabled) => {
+        const newEnabled = currentEnabled === false ? true : false;
+        const action = newEnabled ? 'activar' : 'desactivar';
+        if (!window.confirm(`¿Seguro que deseas ${action} esta puerta?`)) return;
+        try {
+            await FirebaseService.updateDoor(doorId, { enabled: newEnabled });
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    };
+
+    const handleToggleSuspended = async (doorId, currentSuspended) => {
+        const newSuspended = !currentSuspended;
+        const action = newSuspended ? 'suspender el servicio de' : 'reactivar';
+        if (!window.confirm(`¿Seguro que deseas ${action} esta puerta?`)) return;
+        try {
+            await FirebaseService.updateDoor(doorId, { suspended: newSuspended });
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    };
+
     // --- HANDLERS DE CÁMARAS ---
     const handleEditCamera = (cam) => {
         setEditingCameraId(cam.id);
@@ -454,18 +476,38 @@ export default function ConfigScreen({
 
                 {/* LISTA DE PUERTAS EXISTENTES */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-                    {filteredDoors.map(d => (
+                    {filteredDoors.map(d => {
+                        const isEnabled = d.enabled !== false;
+                        return (
                         <div key={d.id} style={{
-                            background: 'rgba(255,255,255,0.05)',
+                            background: isEnabled ? 'rgba(255,255,255,0.05)' : 'rgba(231,76,60,0.05)',
                             padding: '20px',
                             borderRadius: '15px',
-                            border: '1px solid rgba(255,255,255,0.1)',
+                            border: isEnabled ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(231,76,60,0.25)',
                             position: 'relative',
                             backdropFilter: 'blur(10px)'
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div>
-                                    <h4 style={{ color: '#fff', margin: 0, fontSize: '1.1em' }}>{d.name}</h4>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                                        <h4 style={{ color: isEnabled ? '#fff' : '#aaa', margin: 0, fontSize: '1.1em' }}>{d.name}</h4>
+                                        {!isEnabled && (
+                                            <span style={{
+                                                fontSize: '0.65em', fontWeight: 'bold',
+                                                background: 'rgba(231,76,60,0.2)', color: '#e74c3c',
+                                                border: '1px solid rgba(231,76,60,0.4)',
+                                                padding: '1px 7px', borderRadius: '99px', whiteSpace: 'nowrap'
+                                            }}>APAGADA</span>
+                                        )}
+                                        {d.suspended && (
+                                            <span style={{
+                                                fontSize: '0.65em', fontWeight: 'bold',
+                                                background: 'rgba(243,156,18,0.2)', color: '#f39c12',
+                                                border: '1px solid rgba(243,156,18,0.4)',
+                                                padding: '1px 7px', borderRadius: '99px', whiteSpace: 'nowrap'
+                                            }}>SUSPENDIDA</span>
+                                        )}
+                                    </div>
                                     <p style={{ color: '#888', margin: '5px 0', fontSize: '0.8em' }}>{d.group || 'Sin grupo'}</p>
                                     <span style={{
                                         fontSize: '0.7em',
@@ -485,13 +527,40 @@ export default function ConfigScreen({
                                         </span>
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button onClick={() => handleEditClick(d)} style={{ background: '#3498db', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em' }}>Editar</button>
-                                    <button onClick={() => handleDelete(d.id)} style={{ background: '#e74c3c', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em' }}>Borrar</button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginLeft: '10px', flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button onClick={() => handleEditClick(d)} style={{ background: '#3498db', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em' }}>Editar</button>
+                                        <button onClick={() => handleDelete(d.id)} style={{ background: '#e74c3c', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em' }}>Borrar</button>
+                                    </div>
+                                    <button
+                                        onClick={() => handleToggleEnabled(d.id, d.enabled)}
+                                        style={{
+                                            background: isEnabled ? 'rgba(231,76,60,0.15)' : 'rgba(46,204,113,0.15)',
+                                            border: isEnabled ? '1px solid rgba(231,76,60,0.5)' : '1px solid rgba(46,204,113,0.5)',
+                                            color: isEnabled ? '#e74c3c' : '#2ecc71',
+                                            padding: '6px 12px', borderRadius: '6px', cursor: 'pointer',
+                                            fontSize: '0.8em', fontWeight: 'bold', width: '100%'
+                                        }}
+                                    >
+                                        {isEnabled ? '⏸ Apagar' : '▶ Encender'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleToggleSuspended(d.id, d.suspended === true)}
+                                        style={{
+                                            background: d.suspended ? 'rgba(46,204,113,0.15)' : 'rgba(243,156,18,0.15)',
+                                            border: d.suspended ? '1px solid rgba(46,204,113,0.5)' : '1px solid rgba(243,156,18,0.5)',
+                                            color: d.suspended ? '#2ecc71' : '#f39c12',
+                                            padding: '6px 12px', borderRadius: '6px', cursor: 'pointer',
+                                            fontSize: '0.8em', fontWeight: 'bold', width: '100%'
+                                        }}
+                                    >
+                                        {d.suspended ? '✅ Reactivar' : '🚫 Suspender'}
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* FORMULARIO DE EDICIÓN / AGREGAR */}

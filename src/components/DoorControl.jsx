@@ -36,6 +36,8 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         connectionState = 'busy';
     }
 
+    const isDoorEnabled = device.enabled !== false;
+    const isDoorSuspended = device.suspended === true;
     const isCondominio = device.billingMode === 'condominio';
 
     // --- SETTINGS CONDOMINIO (globales como fallback) ---
@@ -123,6 +125,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const licenseInfo = getLicenseInfo();
 
     const handleUnlock = async () => {
+        if (!isDoorEnabled) {
+            return { success: false, message: 'Puerta desactivada por el administrador' };
+        }
+        if (isDoorSuspended) {
+            return { success: false, message: 'Servicio suspendido' };
+        }
         if (!accessCheck.allowed) {
             return { success: false, message: 'Licencia inválida' };
         }
@@ -432,11 +440,30 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     return (
         <div className="door-control-card" style={{
-            marginBottom: '20px', padding: '15px', background: 'rgba(255,255,255,0.05)',
-            borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)',
-            position: 'relative', opacity: (!accessCheck.allowed && !showLicenseModal) ? 0.7 : 1
+            marginBottom: '20px', padding: '15px',
+            background: !isDoorEnabled ? 'rgba(80,80,80,0.08)' : 'rgba(255,255,255,0.05)',
+            borderRadius: '12px',
+            border: !isDoorEnabled ? '1px solid rgba(120,120,120,0.25)' : '1px solid rgba(255,255,255,0.1)',
+            position: 'relative',
+            opacity: (!isDoorEnabled || (!accessCheck.allowed && !showLicenseModal)) ? 0.75 : 1
         }}>
-            {!accessCheck.allowed && (
+            {!isDoorEnabled && (
+                <div style={{
+                    position: 'absolute', top: 10, right: 10, background: '#555',
+                    color: 'white', padding: '2px 8px', borderRadius: '12px',
+                    fontSize: '0.7em', fontWeight: 'bold', zIndex: 10,
+                    boxShadow: '0 0 10px rgba(80,80,80,0.5)'
+                }}>⏸ APAGADA</div>
+            )}
+            {isDoorEnabled && isDoorSuspended && (
+                <div style={{
+                    position: 'absolute', top: 10, right: 10, background: '#d97706',
+                    color: 'white', padding: '2px 8px', borderRadius: '12px',
+                    fontSize: '0.7em', fontWeight: 'bold', zIndex: 10,
+                    boxShadow: '0 0 10px rgba(217,119,6,0.5)'
+                }}>🚫 SUSPENDIDA</div>
+            )}
+            {isDoorEnabled && !isDoorSuspended && !accessCheck.allowed && (
                 <div style={{
                     position: 'absolute', top: 10, right: 10, background: '#ff0000',
                     color: 'white', padding: '2px 8px', borderRadius: '12px',
@@ -461,7 +488,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                         <img src={device.customImage} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
                 )}
-                <UnlockButton onUnlock={handleUnlock} onlineState={connectionState} disabled={!accessCheck.allowed} />
+                <UnlockButton onUnlock={handleUnlock} onlineState={connectionState} disabled={!accessCheck.allowed || !isDoorEnabled || isDoorSuspended} />
             </div>
 
             {/* BOTONES INFERIORES EQUIDISTANTES */}
@@ -565,6 +592,26 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     color: '#ef4444', fontSize: '0.78em', lineHeight: 1.5
                 }}>
                     🔒 {accessCheck.message}
+                </div>
+            )}
+
+            {!isDoorEnabled && (
+                <div style={{
+                    marginTop: '10px', padding: '10px 12px', borderRadius: '8px',
+                    background: 'rgba(100,100,100,0.12)', border: '1px solid rgba(120,120,120,0.3)',
+                    color: '#999', fontSize: '0.78em', lineHeight: 1.5, textAlign: 'center'
+                }}>
+                    ⏸ Puerta desactivada por el administrador
+                </div>
+            )}
+
+            {isDoorEnabled && isDoorSuspended && (
+                <div style={{
+                    marginTop: '10px', padding: '12px 14px', borderRadius: '8px',
+                    background: 'rgba(217,119,6,0.1)', border: '1px solid rgba(217,119,6,0.35)',
+                    color: '#fbbf24', fontSize: '0.82em', lineHeight: 1.6, textAlign: 'center'
+                }}>
+                    🚫 Servicio suspendido. Por favor regularice su cuenta para continuar.
                 </div>
             )}
 

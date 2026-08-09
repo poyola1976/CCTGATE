@@ -56,7 +56,7 @@ function App() {
     return { groups, noGroup };
   };
 
-  const { groups, noGroup } = groupDevices(devices);
+  const { groups, noGroup } = groupDevices(devices.filter(d => d.enabled !== false));
   const sortedGroupNames = Object.keys(groups).sort();
   const hasMultipleGroups = sortedGroupNames.length > 0;
 
