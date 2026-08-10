@@ -53,6 +53,9 @@ export default function LoginScreen({ onLogin }) {
                 // Auth state change in App.jsx handles the rest
             }
             else if (mode === 'register') {
+                // Limpiar error previo para evitar falso positivo en la validación
+                sessionStorage.removeItem('auth_error');
+
                 if (!formData.fullName || !formData.phone) {
                     throw new Error("Nombre y teléfono son obligatorios.");
                 }
