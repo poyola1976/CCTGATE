@@ -36,7 +36,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         connectionState = 'busy';
     }
 
-    const isDoorEnabled = device.enabled !== false;
+    const isDoorEnabled = isAdmin ? (device.enabled !== false) : true;
     const isDoorSuspended = device.suspended === true;
     const isCondominio = device.billingMode === 'condominio';
 

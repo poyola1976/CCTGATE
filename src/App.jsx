@@ -56,7 +56,9 @@ function App() {
     return { groups, noGroup };
   };
 
-  const { groups, noGroup } = groupDevices(devices.filter(d => d.enabled !== false));
+  const { groups, noGroup } = groupDevices(
+    userRole === 'admin' ? devices.filter(d => d.enabled !== false) : devices
+  );
   const sortedGroupNames = Object.keys(groups).sort();
   const hasMultipleGroups = sortedGroupNames.length > 0;
 
