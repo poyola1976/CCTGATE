@@ -25,7 +25,13 @@ export default function LoginScreen({ onLogin }) {
 
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        let value = e.target.value;
+        if (e.target.name === 'phone') {
+            if (value.startsWith('+')) value = value.slice(1);
+            value = value.replace(/\D/g, '');
+            if (value.startsWith('56') && value.length === 11) value = value.slice(2);
+        }
+        setFormData({ ...formData, [e.target.name]: value });
     };
 
     const handleGoogleLogin = async () => {
@@ -58,6 +64,9 @@ export default function LoginScreen({ onLogin }) {
 
                 if (!formData.fullName || !formData.phone) {
                     throw new Error("Nombre y teléfono son obligatorios.");
+                }
+                if (formData.phone.length !== 9) {
+                    throw new Error("El teléfono debe tener exactamente 9 dígitos.");
                 }
                 if (formData.password !== formData.confirmPassword) {
                     throw new Error("Las contraseñas no coinciden.");
@@ -202,21 +211,34 @@ export default function LoginScreen({ onLogin }) {
                                         required
                                         style={inputStyle}
                                     />
-                                    <input
-                                        name="phone"
-                                        placeholder="Teléfono *"
-                                        type="tel"
-                                        value={formData.phone}
-                                        onChange={handleChange}
-                                        required
-                                        style={inputStyle}
-                                    />
+                                    <div>
+                                        <input
+                                            name="phone"
+                                            placeholder="Teléfono * (ej: 912345678)"
+                                            type="tel"
+                                            value={formData.phone}
+                                            onChange={handleChange}
+                                            required
+                                            style={{
+                                                ...inputStyle,
+                                                width: '100%',
+                                                borderColor: formData.phone
+                                                    ? (formData.phone.length === 9 ? '#2ecc71' : '#e74c3c')
+                                                    : inputStyle.borderColor
+                                            }}
+                                        />
+                                        {formData.phone && formData.phone.length !== 9 && (
+                                            <p style={{ color: '#e74c3c', fontSize: '0.8em', margin: '4px 0 0', textAlign: 'left' }}>
+                                                Ingresa 9 dígitos (con o sin código 56)
+                                            </p>
+                                        )}
+                                    </div>
                                 </>
                             )}
 
                             <input
                                 name="email"
-                                placeholder="Correo Electrónico"
+                                placeholder="Correo Electrónico *"
                                 type="email"
                                 value={formData.email}
                                 onChange={handleChange}
@@ -248,25 +270,38 @@ export default function LoginScreen({ onLogin }) {
                                     </div>
 
                                     {mode === 'register' && (
-                                        <div style={{ position: 'relative' }}>
-                                            <input
-                                                name="confirmPassword"
-                                                placeholder="Repetir Contraseña"
-                                                type={showConfirmPassword ? "text" : "password"}
-                                                value={formData.confirmPassword}
-                                                onChange={handleChange}
-                                                required
-                                                minLength={6}
-                                                style={{ ...inputStyle, width: '100%' }}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                                style={eyeButtonStyle}
-                                                title={showConfirmPassword ? "Ocultar" : "Mostrar"}
-                                            >
-                                                {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
-                                            </button>
+                                        <div>
+                                            <div style={{ position: 'relative' }}>
+                                                <input
+                                                    name="confirmPassword"
+                                                    placeholder="Repetir Contraseña"
+                                                    type={showConfirmPassword ? "text" : "password"}
+                                                    value={formData.confirmPassword}
+                                                    onChange={handleChange}
+                                                    required
+                                                    minLength={6}
+                                                    style={{
+                                                        ...inputStyle,
+                                                        width: '100%',
+                                                        borderColor: formData.confirmPassword
+                                                            ? (formData.password === formData.confirmPassword ? '#2ecc71' : '#e74c3c')
+                                                            : inputStyle.borderColor
+                                                    }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                    style={eyeButtonStyle}
+                                                    title={showConfirmPassword ? "Ocultar" : "Mostrar"}
+                                                >
+                                                    {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                                                </button>
+                                            </div>
+                                            {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                                                <p style={{ color: '#e74c3c', fontSize: '0.8em', margin: '4px 0 0', textAlign: 'left' }}>
+                                                    Las contraseñas no coinciden
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </>
