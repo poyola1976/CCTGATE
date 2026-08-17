@@ -8,7 +8,7 @@ import Hls from 'hls.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing }) {
+export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing, triggerValidatorPanel, onValidatorPanelTriggered }) {
     // Cálculo de Precios Dinámicos
     const p_semestral = device.price_semestral || globalPricing?.semestral || 8000;
     const p_anual = device.price_anual || globalPricing?.anual || 10000;
@@ -249,6 +249,16 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             setLogsLoading(false);
         }
     };
+
+    // Abre el panel de validador automáticamente cuando se presiona ⚙️ en el header
+    useEffect(() => {
+        if (triggerValidatorPanel && isValidatorForDoor && !showValidatorPanel) {
+            toggleValidatorPanel();
+            onValidatorPanelTriggered?.();
+        } else if (triggerValidatorPanel) {
+            onValidatorPanelTriggered?.();
+        }
+    }, [triggerValidatorPanel]);
 
     // --- HANDLERS DEL PANEL DE VALIDADOR ---
     const toggleValidatorPanel = async () => {

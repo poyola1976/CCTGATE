@@ -68,6 +68,7 @@ function App() {
 
   // Estado para el modal de perfil
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [triggerValidatorPanel, setTriggerValidatorPanel] = useState(false);
 
   // 1. Gestión de Sesión
   useEffect(() => {
@@ -390,7 +391,7 @@ function App() {
           {currentView === 'home' && userRole === 'validador' && (
             <button
               className="settings-btn"
-              onClick={() => { setShowProfileModal(false); setCurrentView('home'); }}
+              onClick={() => { setShowProfileModal(false); setTriggerValidatorPanel(true); }}
               aria-label="Gestionar"
               title="Gestionar usuarios de mis puertas"
               style={{ fontSize: '1.2rem' }}
@@ -549,9 +550,10 @@ function App() {
                           onMessage={handleChildMessage}
                           isAdmin={userRole === 'admin'}
                           userProfile={userProfile}
-                          // Pass associated camera object if exists
                           camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
                           globalPricing={globalPricing}
+                          triggerValidatorPanel={triggerValidatorPanel}
+                          onValidatorPanelTriggered={() => setTriggerValidatorPanel(false)}
                         />
                       ))}
                     </div>
@@ -569,9 +571,10 @@ function App() {
                         onMessage={handleChildMessage}
                         isAdmin={userRole === 'admin'}
                         userProfile={userProfile}
-                        // Pass associated camera object if exists
                         camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
                         globalPricing={globalPricing}
+                        triggerValidatorPanel={triggerValidatorPanel}
+                        onValidatorPanelTriggered={() => setTriggerValidatorPanel(false)}
                       />
                     ))}
                   </div>
