@@ -17,16 +17,18 @@ export const UserService = {
         // Eliminada lógica de "Primer Usuario = Admin" por problemas de permisos y seguridad.
         // El primer admin debe crearse manualmente en Firebase Console o usar un script de seed.
 
-        // Verificar si está en alguna puerta
+        // Verificar si está en allowedEmails o en validatorEmails de alguna puerta
         const doorsRef = collection(db, 'doors');
-        const q = query(doorsRef, where('allowedEmails', 'array-contains', email), limit(1));
-        const doorSnap = await getDocs(q);
+        const qAllowed = query(doorsRef, where('allowedEmails', 'array-contains', email), limit(1));
+        const qValidator = query(doorsRef, where('validatorEmails', 'array-contains', email), limit(1));
 
-        if (doorSnap.empty) {
-            console.warn(`Registro rechazado: ${email} no está en ninguna whitelist.`);
-            throw new Error("UNAUTHORIZED_REGISTRATION");
-        }
-        return 'user';
+        const [allowedSnap, validatorSnap] = await Promise.all([getDocs(qAllowed), getDocs(qValidator)]);
+
+        if (!allowedSnap.empty) return 'user';
+        if (!validatorSnap.empty) return 'validador';
+
+        console.warn(`Registro rechazado: ${email} no está en ninguna whitelist.`);
+        throw new Error("UNAUTHORIZED_REGISTRATION");
     },
 
     /**

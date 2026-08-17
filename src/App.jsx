@@ -380,8 +380,8 @@ function App() {
             <span style={{ fontSize: '0.8em', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user.displayName?.split(' ')[0] || user.email.split('@')[0]}
             </span>
-            <span style={{ fontSize: '0.6em', color: userRole === 'admin' ? '#f39c12' : '#ccc' }}>
-              {userRole === 'admin' ? 'ADMIN' : 'Usuario'}
+            <span style={{ fontSize: '0.6em', color: userRole === 'admin' ? '#f39c12' : userRole === 'validador' ? '#9b59b6' : '#ccc' }}>
+              {userRole === 'admin' ? 'ADMIN' : userRole === 'validador' ? 'VALIDADOR' : 'Usuario'}
             </span>
           </div>
         </div>

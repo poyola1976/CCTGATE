@@ -99,46 +99,61 @@ export const FirebaseService = {
     subscribeToDoors: (callback, role = 'user', userEmail = null) => {
         if (!db) return () => { };
 
-        let q;
-
         if (role === 'admin') {
             // Admin ve todo
-            q = query(collection(db, COLLECTION_NAME), orderBy('name'));
-        } else if (userEmail) {
-            // Usuario solo ve donde su email está en 'allowedEmails'
-            // NOTA: Requiere índice compuesto en Firestore si combinamos con orderBy.
-            // Para simplificar y evitar bloqueo por índice, quitamos orderBy en la query filtrada
-            // y ordenamos en cliente si es necesario, O creamos el índice en consola.
-            // Usaremos 'array-contains'
-            q = query(
-                collection(db, COLLECTION_NAME),
-                where('allowedEmails', 'array-contains', userEmail)
-            );
-        } else {
-            // Usuario sin email o error? No mostrar nada
-            callback([]);
-            return () => { };
+            const q = query(collection(db, COLLECTION_NAME), orderBy('name'));
+            return onSnapshot(q, (snapshot) => {
+                callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            }, (error) => { console.error("Error syncing doors:", error); });
         }
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const doors = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            // Ordenamiento manual si no es admin (por si acaso el orderBy falla sin índice)
-            if (role !== 'admin') {
-                doors.sort((a, b) => a.name.localeCompare(b.name));
-            }
-            callback(doors);
-        }, (error) => {
-            console.error("Error syncing doors:", error);
-            // Fallback silencioso o notificación
-            if (error.code === 'failed-precondition') {
-                console.warn("Posible falta de índice compuesto. Revisa la consola de Firebase.");
-            }
-        });
+        if (role === 'validador' && userEmail) {
+            // Validador ve puertas donde está en allowedEmails O en validatorEmails
+            // Firestore no soporta OR entre campos distintos, hacemos dos queries y mergeamos
+            let doorsAllowed = [];
+            let doorsValidator = [];
+            let unsub1, unsub2;
+            let resolved1 = false, resolved2 = false;
 
-        return unsubscribe;
+            const merge = () => {
+                if (!resolved1 || !resolved2) return;
+                const map = {};
+                [...doorsAllowed, ...doorsValidator].forEach(d => { map[d.id] = d; });
+                const merged = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+                callback(merged);
+            };
+
+            unsub1 = onSnapshot(
+                query(collection(db, COLLECTION_NAME), where('allowedEmails', 'array-contains', userEmail)),
+                (snap) => { doorsAllowed = snap.docs.map(d => ({ id: d.id, ...d.data() })); resolved1 = true; merge(); },
+                (e) => { console.error("Error (validador allowedEmails):", e); resolved1 = true; merge(); }
+            );
+            unsub2 = onSnapshot(
+                query(collection(db, COLLECTION_NAME), where('validatorEmails', 'array-contains', userEmail)),
+                (snap) => { doorsValidator = snap.docs.map(d => ({ id: d.id, ...d.data() })); resolved2 = true; merge(); },
+                (e) => { console.error("Error (validador validatorEmails):", e); resolved2 = true; merge(); }
+            );
+
+            return () => { unsub1(); unsub2(); };
+        }
+
+        if (userEmail) {
+            // Usuario normal: solo ve puertas donde su email está en allowedEmails
+            const q = query(collection(db, COLLECTION_NAME), where('allowedEmails', 'array-contains', userEmail));
+            return onSnapshot(q, (snapshot) => {
+                const doors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                doors.sort((a, b) => a.name.localeCompare(b.name));
+                callback(doors);
+            }, (error) => {
+                console.error("Error syncing doors:", error);
+                if (error.code === 'failed-precondition') {
+                    console.warn("Posible falta de índice compuesto. Revisa la consola de Firebase.");
+                }
+            });
+        }
+
+        callback([]);
+        return () => { };
     },
 
     /**
