@@ -54,13 +54,17 @@ export const UserService = {
             // SELF-HEALING: Si está guardado como 'user' pero aparece en validatorEmails de alguna puerta,
             // actualizar a 'validador' automáticamente.
             if (userData.role === 'user') {
-                const email = user.email.toLowerCase();
-                const qValidator = query(collection(db, 'doors'), where('validatorEmails', 'array-contains', email), limit(1));
-                const validatorSnap = await getDocs(qValidator);
-                if (!validatorSnap.empty) {
-                    console.log(`Auto-upgrade: ${email} → validador`);
-                    await updateDoc(userRef, { role: 'validador' });
-                    return 'validador';
+                try {
+                    const email = user.email.toLowerCase();
+                    const qValidator = query(collection(db, 'doors'), where('validatorEmails', 'array-contains', email), limit(1));
+                    const validatorSnap = await getDocs(qValidator);
+                    if (!validatorSnap.empty) {
+                        console.log(`Auto-upgrade: ${email} → validador`);
+                        await updateDoc(userRef, { role: 'validador' });
+                        return 'validador';
+                    }
+                } catch (e) {
+                    console.warn('Auto-upgrade validador falló (posible regla Firestore o índice):', e.message);
                 }
             }
 
