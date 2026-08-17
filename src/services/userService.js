@@ -51,6 +51,19 @@ export const UserService = {
                 UserService.regenerateLicenses(user.uid, user.email);
             }
 
+            // SELF-HEALING: Si está guardado como 'user' pero aparece en validatorEmails de alguna puerta,
+            // actualizar a 'validador' automáticamente.
+            if (userData.role === 'user') {
+                const email = user.email.toLowerCase();
+                const qValidator = query(collection(db, 'doors'), where('validatorEmails', 'array-contains', email), limit(1));
+                const validatorSnap = await getDocs(qValidator);
+                if (!validatorSnap.empty) {
+                    console.log(`Auto-upgrade: ${email} → validador`);
+                    await updateDoc(userRef, { role: 'validador' });
+                    return 'validador';
+                }
+            }
+
             return userData.role;
         } else {
             // Usar validador centralizado (ya normaliza internamente, pero pasamos user.email)
