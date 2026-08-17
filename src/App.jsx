@@ -68,7 +68,8 @@ function App() {
 
   // Estado para el modal de perfil
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [triggerValidatorPanel, setTriggerValidatorPanel] = useState(false);
+  const [triggerValidatorPanel, setTriggerValidatorPanel] = useState(null);
+  const [showValidatorMenu, setShowValidatorMenu] = useState(false);
 
   // 1. Gestión de Sesión
   useEffect(() => {
@@ -389,15 +390,58 @@ function App() {
 
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {currentView === 'home' && userRole === 'validador' && (
-            <button
-              className="settings-btn"
-              onClick={() => { setShowProfileModal(false); setTriggerValidatorPanel(true); }}
-              aria-label="Gestionar"
-              title="Gestionar usuarios de mis puertas"
-              style={{ fontSize: '1.2rem' }}
-            >
-              ⚙️
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                className="settings-btn"
+                onClick={() => {
+                  setShowProfileModal(false);
+                  setShowValidatorMenu(prev => !prev);
+                }}
+                aria-label="Gestionar"
+                title="Gestionar usuarios de mis puertas"
+                style={{ fontSize: '1.2rem' }}
+              >
+                ⚙️
+              </button>
+              {showValidatorMenu && (
+                <>
+                  {/* overlay invisible para cerrar el menú al click fuera */}
+                  <div onClick={() => setShowValidatorMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 299 }} />
+                  <div style={{
+                    position: 'absolute', top: '110%', right: 0,
+                    background: '#1e1e1e', border: '1px solid #555',
+                    borderRadius: '10px', padding: '6px', zIndex: 300,
+                    minWidth: '210px', boxShadow: '0 8px 24px rgba(0,0,0,0.7)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px 10px', borderBottom: '1px solid #333', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.7em', color: '#888' }}>⚙️ Gestionar usuarios de:</span>
+                      <button onClick={() => setShowValidatorMenu(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '1em', lineHeight: 1, padding: '0 2px' }}>✕</button>
+                    </div>
+                    {devices
+                      .filter(d => (d.validatorEmails || []).map(e => e.toLowerCase()).includes(user?.email?.toLowerCase()))
+                      .map(d => (
+                        <button key={d.id}
+                          onClick={() => { setTriggerValidatorPanel(d.id); setShowValidatorMenu(false); }}
+                          style={{
+                            display: 'block', width: '100%', padding: '9px 12px',
+                            background: 'none', border: 'none', color: '#fff',
+                            cursor: 'pointer', textAlign: 'left', borderRadius: '6px',
+                            fontSize: '0.88em'
+                          }}
+                          onMouseOver={e => e.currentTarget.style.background = 'rgba(243,156,18,0.18)'}
+                          onMouseOut={e => e.currentTarget.style.background = 'none'}
+                        >
+                          🚪 {d.name}
+                        </button>
+                      ))
+                    }
+                    {devices.filter(d => (d.validatorEmails || []).map(e => e.toLowerCase()).includes(user?.email?.toLowerCase())).length === 0 && (
+                      <div style={{ fontSize: '0.8em', color: '#666', padding: '8px 12px' }}>Sin puertas asignadas</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {currentView === 'home' && userRole === 'admin' && (
             <>
@@ -553,7 +597,7 @@ function App() {
                           camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
                           globalPricing={globalPricing}
                           triggerValidatorPanel={triggerValidatorPanel}
-                          onValidatorPanelTriggered={() => setTriggerValidatorPanel(false)}
+                          onValidatorPanelTriggered={() => setTriggerValidatorPanel(null)}
                         />
                       ))}
                     </div>
@@ -574,7 +618,7 @@ function App() {
                         camera={cameras.find(c => c.id === (device.associatedCameraId || device.cameraId))}
                         globalPricing={globalPricing}
                         triggerValidatorPanel={triggerValidatorPanel}
-                        onValidatorPanelTriggered={() => setTriggerValidatorPanel(false)}
+                        onValidatorPanelTriggered={() => setTriggerValidatorPanel(null)}
                       />
                     ))}
                   </div>

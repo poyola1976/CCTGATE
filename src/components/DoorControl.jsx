@@ -253,12 +253,10 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         }
     };
 
-    // Abre el panel de validador automáticamente cuando se presiona ⚙️ en el header
+    // Abre el panel de validador cuando el gear del header selecciona esta puerta específica
     useEffect(() => {
-        if (triggerValidatorPanel && isValidatorForDoor && !showValidatorPanel) {
-            toggleValidatorPanel();
-            onValidatorPanelTriggered?.();
-        } else if (triggerValidatorPanel) {
+        if (triggerValidatorPanel === device.id && isValidatorForDoor) {
+            if (!showValidatorPanel) toggleValidatorPanel();
             onValidatorPanelTriggered?.();
         }
     }, [triggerValidatorPanel]);
@@ -374,7 +372,15 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         }
         setValidatorLoading(true);
         try {
-            await FirebaseService.updateDoor(device.id, { validatorEmails: [...current, email] });
+            // Agrega a validatorEmails Y también a allowedEmails (para que aparezca en queries de Firestore)
+            const currentAllowed = device.allowedEmails || [];
+            const newAllowed = currentAllowed.map(e => e.toLowerCase()).includes(email)
+                ? currentAllowed
+                : [...currentAllowed, email];
+            await FirebaseService.updateDoor(device.id, {
+                validatorEmails: [...current, email],
+                allowedEmails: newAllowed
+            });
             setValidatorNewValidatorEmail('');
         } catch (e) { alert('Error: ' + e.message); }
         finally { setValidatorLoading(false); }
