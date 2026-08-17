@@ -249,21 +249,7 @@ export default function UserProfileModal({ isOpen, onClose, user, userRole }) {
                         </div>
                     )}
 
-                    {userRole === 'validador' && (
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            style={{
-                                width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #9b59b6',
-                                background: 'rgba(155,89,182,0.12)', color: '#9b59b6', fontSize: '0.95em',
-                                cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px'
-                            }}
-                        >
-                            ⚙️ Gestionar usuarios de mis puertas
-                        </button>
-                    )}
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                         <button
                             type="button"
                             onClick={onClose}

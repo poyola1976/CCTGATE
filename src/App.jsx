@@ -387,6 +387,17 @@ function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {currentView === 'home' && userRole === 'validador' && (
+            <button
+              className="settings-btn"
+              onClick={() => { setShowProfileModal(false); setCurrentView('home'); }}
+              aria-label="Gestionar"
+              title="Gestionar usuarios de mis puertas"
+              style={{ fontSize: '1.2rem' }}
+            >
+              ⚙️
+            </button>
+          )}
           {currentView === 'home' && userRole === 'admin' && (
             <>
               {userRole === 'admin' && (
