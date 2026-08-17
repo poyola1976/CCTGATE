@@ -590,26 +590,6 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 )}
             </div>
 
-            {isValidatorForDoor && (
-                <div style={{ marginTop: '8px' }}>
-                    <button
-                        onClick={toggleValidatorPanel}
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            border: showValidatorPanel ? '1px solid #f39c12' : '1px solid rgba(243,156,18,0.3)',
-                            background: showValidatorPanel ? 'rgba(243,156,18,0.2)' : 'rgba(243,156,18,0.08)',
-                            color: '#f39c12',
-                            cursor: 'pointer',
-                            fontWeight: 'bold',
-                            fontSize: '0.85em'
-                        }}
-                    >
-                        {showValidatorPanel ? 'Cerrar Gestion' : 'Gestionar Usuarios'}
-                    </button>
-                </div>
-            )}
 
             {connectionState === 'offline' && (
                 <div style={{ marginTop: '10px', textAlign: 'center' }}>
@@ -659,7 +639,10 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
             {isValidatorForDoor && showValidatorPanel && (
                 <div style={{ marginTop: '15px', background: 'rgba(243,156,18,0.06)', border: '1px solid rgba(243,156,18,0.25)', borderRadius: '12px', padding: '15px' }}>
-                    <h4 style={{ color: '#f39c12', margin: '0 0 12px', fontSize: '0.9em' }}>Usuarios con acceso: {device.name}</h4>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <h4 style={{ color: '#f39c12', margin: 0, fontSize: '0.9em' }}>Usuarios con acceso: {device.name}</h4>
+                        <button onClick={() => setShowValidatorPanel(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '1.1em', lineHeight: 1 }}>✕</button>
+                    </div>
                     {validatorLoading && <div style={{ textAlign: 'center', color: '#888', padding: '10px' }}>Cargando...</div>}
                     {!validatorLoading && (device.allowedEmails || []).length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '15px' }}>
