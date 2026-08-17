@@ -735,6 +735,25 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     </div>
                     {validatorLoading && <div style={{ textAlign: 'center', color: '#888', padding: '10px' }}>Cargando...</div>}
                     {!validatorLoading && (device.allowedEmails || []).length > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+                            <button
+                                onClick={async () => {
+                                    const total = (device.allowedEmails || []).length;
+                                    if (!window.confirm(`¿Quitar TODOS los ${total} correos con acceso a esta puerta?\n\nEsta acción no se puede deshacer.`)) return;
+                                    setValidatorLoading(true);
+                                    try {
+                                        await FirebaseService.updateDoor(device.id, { allowedEmails: [] });
+                                        setValidatorPanelUsers({});
+                                    } catch (e) { alert('Error: ' + e.message); }
+                                    finally { setValidatorLoading(false); }
+                                }}
+                                style={{ padding: '4px 10px', background: 'rgba(231,76,60,0.15)', border: '1px solid rgba(231,76,60,0.4)', color: '#e74c3c', borderRadius: '6px', cursor: 'pointer', fontSize: '0.72em', fontWeight: 'bold' }}
+                            >
+                                🗑 Quitar todos
+                            </button>
+                        </div>
+                    )}
+                    {!validatorLoading && (device.allowedEmails || []).length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '15px' }}>
                             {(device.allowedEmails || []).map(email => {
                                 const emailLower = email.toLowerCase();

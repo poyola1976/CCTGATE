@@ -682,7 +682,22 @@ export default function ConfigScreen({
                         {/* GESTIÓN DE EMAILS AUTORIZADOS */}
                         <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '15px' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', marginBottom: '15px' }}>
-                                <label style={{ display: 'block', fontSize: '0.9em', color: '#3498db', fontWeight: 'bold', margin: '0 0 10px 0' }}>📧 Emails Autorizados:</label>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                    <label style={{ fontSize: '0.9em', color: '#3498db', fontWeight: 'bold' }}>📧 Emails Autorizados:</label>
+                                    {formData.allowedEmails.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (window.confirm(`¿Quitar TODOS los ${formData.allowedEmails.length} correos autorizados de esta puerta?\n\nEsta acción se aplicará al guardar.`)) {
+                                                    setFormData({ ...formData, allowedEmails: [] });
+                                                }
+                                            }}
+                                            style={{ padding: '4px 10px', background: 'rgba(231,76,60,0.15)', border: '1px solid rgba(231,76,60,0.5)', color: '#e74c3c', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75em', fontWeight: 'bold' }}
+                                        >
+                                            🗑 Quitar todos
+                                        </button>
+                                    )}
+                                </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                                     <span style={{ fontSize: '0.8em', color: '#888', whiteSpace: 'nowrap' }}>Masiva (Excel):</span>
                                     <input
