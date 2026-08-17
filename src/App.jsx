@@ -387,7 +387,7 @@ function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {currentView === 'home' && (userRole === 'admin' || userRole === 'validador') && (
+          {currentView === 'home' && userRole === 'admin' && (
             <>
               {userRole === 'admin' && (
                 <button
@@ -455,7 +455,7 @@ function App() {
       </header>
 
       <main>
-        {currentView === 'config' && (userRole === 'admin' || userRole === 'validador') ? (
+        {currentView === 'config' && userRole === 'admin' ? (
           <ConfigScreen
             userRole={userRole}
             devices={devices}
