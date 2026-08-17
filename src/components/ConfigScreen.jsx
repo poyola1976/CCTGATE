@@ -998,7 +998,7 @@ export default function ConfigScreen({
             </>)}
 
             {/* ======================== PLAZOS CONDOMINIO ======================== */}
-            {activeTab === 'doors' && (
+            {activeTab === 'doors' && userRole === 'admin' && (
                 <div style={{
                     background: 'rgba(232,112,26,0.07)',
                     border: '1px solid rgba(232,112,26,0.25)',
