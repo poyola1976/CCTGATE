@@ -591,6 +591,7 @@ function App() {
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
         user={user}
+        userRole={userRole}
       />
 
       <style>{`

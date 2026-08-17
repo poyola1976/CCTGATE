@@ -17,7 +17,7 @@ const EyeOffIcon = () => (
     </svg>
 );
 
-export default function UserProfileModal({ isOpen, onClose, user }) {
+export default function UserProfileModal({ isOpen, onClose, user, userRole }) {
     const [displayName, setDisplayName] = useState('');
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
@@ -141,7 +141,19 @@ export default function UserProfileModal({ isOpen, onClose, user }) {
                 background: '#222', padding: '20px', borderRadius: '12px',
                 width: '90%', maxWidth: '400px', border: '1px solid #444', color: '#fff'
             }}>
-                <h2 style={{ marginTop: 0 }}>Mi Perfil</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h2 style={{ margin: 0 }}>Mi Perfil</h2>
+                    {userRole && (
+                        <span style={{
+                            fontSize: '0.72em', fontWeight: 'bold', padding: '3px 10px', borderRadius: '20px',
+                            background: userRole === 'admin' ? 'rgba(243,156,18,0.15)' : userRole === 'validador' ? 'rgba(155,89,182,0.15)' : 'rgba(255,255,255,0.08)',
+                            color: userRole === 'admin' ? '#f39c12' : userRole === 'validador' ? '#9b59b6' : '#aaa',
+                            border: `1px solid ${userRole === 'admin' ? '#f39c12' : userRole === 'validador' ? '#9b59b6' : '#555'}`
+                        }}>
+                            {userRole.toUpperCase()}
+                        </span>
+                    )}
+                </div>
 
                 <form onSubmit={handleSave}>
                     <div style={{ marginBottom: '15px' }}>
