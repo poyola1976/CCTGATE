@@ -287,6 +287,12 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         setValidatorLoading(true);
         try {
             const currentEmails = device.allowedEmails || [];
+            const limit = device.maxUsers || 20;
+            if (currentEmails.length >= limit) {
+                alert(`⚠️ Esta puerta tiene un límite de ${limit} usuarios. No se pueden agregar más.`);
+                setValidatorLoading(false);
+                return;
+            }
             if (currentEmails.map(e => e.toLowerCase()).includes(email)) {
                 alert(`⚠️ El correo ${email} ya tiene acceso a esta puerta.`);
                 setValidatorLoading(false);
@@ -335,20 +341,43 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
         setValidatorExcelLoading(true);
         try {
             const existingLower = (device.allowedEmails || []).map(e => e.toLowerCase());
+            const limit = device.maxUsers || 20;
+            const availableSlots = limit - existingLower.length;
+
+            if (availableSlots <= 0) {
+                alert(`⚠️ Esta puerta ya alcanzó el límite de ${limit} usuarios. No se pueden agregar más.`);
+                setValidatorExcelEmails([]);
+                return;
+            }
+
             const toAdd = validatorExcelEmails.filter(e => !existingLower.includes(e));
             if (toAdd.length === 0) {
                 alert('Todos los correos ya tienen acceso.');
                 setValidatorExcelEmails([]);
                 return;
             }
-            const newList = [...(device.allowedEmails || []), ...toAdd];
+
+            const toAddLimited = toAdd.slice(0, availableSlots);
+            const truncated = toAdd.length > availableSlots;
+
+            if (truncated) {
+                const ok = window.confirm(
+                    `⚠️ El archivo tiene ${toAdd.length} correos nuevos, pero solo hay espacio para ${availableSlots} (límite: ${limit}).\n\nSe agregarán los primeros ${availableSlots}. ¿Continuar?`
+                );
+                if (!ok) { setValidatorExcelLoading(false); return; }
+            }
+
+            const newList = [...(device.allowedEmails || []), ...toAddLimited];
             await FirebaseService.updateDoor(device.id, { allowedEmails: newList });
-            for (const email of toAdd) {
+            for (const email of toAddLimited) {
                 await UserService.grantDefaultLicenseByEmail(email, device.id);
             }
             const skipped = validatorExcelEmails.length - toAdd.length;
             setValidatorExcelEmails([]);
-            alert(`✅ ${toAdd.length} usuarios agregados.${skipped ? ` (${skipped} ya tenían acceso)` : ''}`);
+            let msg = `✅ ${toAddLimited.length} usuarios agregados.`;
+            if (skipped) msg += ` (${skipped} ya tenían acceso)`;
+            if (truncated) msg += ` Se omitieron ${toAdd.length - toAddLimited.length} por límite de usuarios.`;
+            alert(msg);
             const users = await UserService.getUsersByEmails(newList);
             const map = {};
             users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
