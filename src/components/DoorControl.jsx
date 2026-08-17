@@ -84,6 +84,7 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
     const [showValidatorPanel, setShowValidatorPanel] = useState(false);
     const [validatorNewEmail, setValidatorNewEmail] = useState('');
     const [validatorGraceDays, setValidatorGraceDays] = useState(30);
+    const [validatorNewValidatorEmail, setValidatorNewValidatorEmail] = useState('');
     const [validatorPanelUsers, setValidatorPanelUsers] = useState({});
     const [validatorLoading, setValidatorLoading] = useState(false);
     const [logsLoading, setLogsLoading] = useState(false);
@@ -289,6 +290,37 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
             const map = {};
             users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
             setValidatorPanelUsers(map);
+        } catch (e) { alert('Error: ' + e.message); }
+        finally { setValidatorLoading(false); }
+    };
+
+    const handleValidatorAddValidator = async () => {
+        const email = validatorNewValidatorEmail.trim().toLowerCase();
+        if (!email) return;
+        const maxValidators = device.maxValidators || 3;
+        const current = device.validatorEmails || [];
+        if (current.length >= maxValidators) {
+            alert(`Máximo de ${maxValidators} validadores por puerta.`);
+            return;
+        }
+        if (current.map(e => e.toLowerCase()).includes(email)) {
+            alert('Este email ya es validador de esta puerta.');
+            return;
+        }
+        setValidatorLoading(true);
+        try {
+            await FirebaseService.updateDoor(device.id, { validatorEmails: [...current, email] });
+            setValidatorNewValidatorEmail('');
+        } catch (e) { alert('Error: ' + e.message); }
+        finally { setValidatorLoading(false); }
+    };
+
+    const handleValidatorRemoveValidator = async (email) => {
+        if (!window.confirm('¿Quitar a ' + email + ' como validador?')) return;
+        setValidatorLoading(true);
+        try {
+            const updated = (device.validatorEmails || []).filter(e => e.toLowerCase() !== email.toLowerCase());
+            await FirebaseService.updateDoor(device.id, { validatorEmails: updated });
         } catch (e) { alert('Error: ' + e.message); }
         finally { setValidatorLoading(false); }
     };
@@ -651,6 +683,37 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                             <button onClick={handleValidatorAddEmail} disabled={!validatorNewEmail || validatorLoading} style={{ padding: '8px 14px', background: '#f39c12', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85em' }}>Agregar</button>
                         </div>
                         <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Dias de gracia = dias de licencia al agregar usuario.</div>
+                    </div>
+
+                    {/* Sección validadores */}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px', marginTop: '12px' }}>
+                        <div style={{ fontSize: '0.8em', color: '#f39c12', marginBottom: '8px', fontWeight: 'bold' }}>
+                            🔑 Validadores ({(device.validatorEmails || []).length}/{device.maxValidators || 3} máx):
+                        </div>
+                        {(device.validatorEmails || []).map(email => (
+                            <div key={email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', marginBottom: '4px' }}>
+                                <div style={{ fontSize: '0.8em', color: '#f39c12' }}>🔑 {email}</div>
+                                {email.toLowerCase() !== userProfile?.email?.toLowerCase() && (
+                                    <button onClick={() => handleValidatorRemoveValidator(email)} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '0.8em' }}>X Quitar</button>
+                                )}
+                            </div>
+                        ))}
+                        {(device.validatorEmails || []).length < (device.maxValidators || 3) && (
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                <input
+                                    type="email"
+                                    value={validatorNewValidatorEmail}
+                                    onChange={e => setValidatorNewValidatorEmail(e.target.value)}
+                                    placeholder="email del nuevo validador"
+                                    style={{ flex: 2, padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em' }}
+                                />
+                                <button
+                                    onClick={handleValidatorAddValidator}
+                                    disabled={!validatorNewValidatorEmail || validatorLoading}
+                                    style={{ padding: '8px 14px', background: '#f39c12', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85em' }}
+                                >Agregar</button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
