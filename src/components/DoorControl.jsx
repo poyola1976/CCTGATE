@@ -7,6 +7,7 @@ import flvjs from 'flv.js';
 import Hls from 'hls.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 export default function DoorControl({ device, onMessage, isAdmin, userProfile, camera, globalPricing, triggerValidatorPanel, onValidatorPanelTriggered }) {
     // Cálculo de Precios Dinámicos
@@ -83,11 +84,13 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
 
     const [showValidatorPanel, setShowValidatorPanel] = useState(false);
     const [validatorNewEmail, setValidatorNewEmail] = useState('');
-    const [validatorGraceDays, setValidatorGraceDays] = useState(30);
     const [validatorNewValidatorEmail, setValidatorNewValidatorEmail] = useState('');
     const [validatorPanelUsers, setValidatorPanelUsers] = useState({});
     const [validatorLoading, setValidatorLoading] = useState(false);
     const [logsLoading, setLogsLoading] = useState(false);
+    const [validatorExcelEmails, setValidatorExcelEmails] = useState([]);
+    const [validatorExcelLoading, setValidatorExcelLoading] = useState(false);
+    const excelInputRef = useRef(null);
 
     // --- LÓGICA DE LICENCIA PARA EL ÍCONO ---
     const getLicenseInfo = () => {
@@ -291,17 +294,69 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                 setValidatorLoading(false);
                 return;
             }
-            await FirebaseService.updateDoor(device.id, { allowedEmails: [...currentEmails, email] });
-            if (validatorGraceDays > 0) {
-                await UserService.grantDefaultLicenseByEmail(email, device.id);
-            }
+            const newList = [...currentEmails, email];
+            await FirebaseService.updateDoor(device.id, { allowedEmails: newList });
+            await UserService.grantDefaultLicenseByEmail(email, device.id);
             setValidatorNewEmail('');
-            const users = await UserService.getUsersByEmails([...currentEmails, email]);
+            const users = await UserService.getUsersByEmails(newList);
             const map = {};
             users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
             setValidatorPanelUsers(map);
         } catch (e) { alert('Error: ' + e.message); }
         finally { setValidatorLoading(false); }
+    };
+
+    const handleValidatorExcelUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = new Uint8Array(evt.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                const emails = new Set();
+                rows.forEach(row => {
+                    row.forEach(cell => {
+                        const val = String(cell || '').trim().toLowerCase();
+                        if (val.includes('@') && val.includes('.')) emails.add(val);
+                    });
+                });
+                setValidatorExcelEmails([...emails]);
+            } catch (err) {
+                alert('Error al leer el archivo: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+        e.target.value = '';
+    };
+
+    const handleValidatorBulkAdd = async () => {
+        if (validatorExcelEmails.length === 0) return;
+        setValidatorExcelLoading(true);
+        try {
+            const existingLower = (device.allowedEmails || []).map(e => e.toLowerCase());
+            const toAdd = validatorExcelEmails.filter(e => !existingLower.includes(e));
+            if (toAdd.length === 0) {
+                alert('Todos los correos ya tienen acceso.');
+                setValidatorExcelEmails([]);
+                return;
+            }
+            const newList = [...(device.allowedEmails || []), ...toAdd];
+            await FirebaseService.updateDoor(device.id, { allowedEmails: newList });
+            for (const email of toAdd) {
+                await UserService.grantDefaultLicenseByEmail(email, device.id);
+            }
+            const skipped = validatorExcelEmails.length - toAdd.length;
+            setValidatorExcelEmails([]);
+            alert(`✅ ${toAdd.length} usuarios agregados.${skipped ? ` (${skipped} ya tenían acceso)` : ''}`);
+            const users = await UserService.getUsersByEmails(newList);
+            const map = {};
+            users.forEach(u => { if (u.email) map[u.email.toLowerCase()] = u; });
+            setValidatorPanelUsers(map);
+        } catch (e) { alert('Error: ' + e.message); }
+        finally { setValidatorExcelLoading(false); }
     };
 
     const handleValidatorAddValidator = async () => {
@@ -671,11 +726,38 @@ export default function DoorControl({ device, onMessage, isAdmin, userProfile, c
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px' }}>
                         <div style={{ fontSize: '0.8em', color: '#f39c12', marginBottom: '8px', fontWeight: 'bold' }}>+ Agregar usuario:</div>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            <input type="email" value={validatorNewEmail} onChange={e => setValidatorNewEmail(e.target.value)} placeholder="email@ejemplo.com" style={{ flex: 2, minWidth: '150px', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em' }} />
-                            <input type="number" value={validatorGraceDays} onChange={e => setValidatorGraceDays(Number(e.target.value))} min="0" max="365" style={{ flex: 1, minWidth: '60px', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em', textAlign: 'center' }} title="Dias de gracia" />
+                            <input type="email" value={validatorNewEmail} onChange={e => setValidatorNewEmail(e.target.value)} placeholder="email@ejemplo.com" style={{ flex: 2, minWidth: '150px', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', color: '#fff', fontSize: '0.85em' }} onKeyDown={e => e.key === 'Enter' && handleValidatorAddEmail()} />
                             <button onClick={handleValidatorAddEmail} disabled={!validatorNewEmail || validatorLoading} style={{ padding: '8px 14px', background: '#f39c12', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85em' }}>Agregar</button>
                         </div>
-                        <div style={{ fontSize: '0.7em', color: '#666', marginTop: '5px' }}>Dias de gracia = dias de licencia al agregar usuario.</div>
+                        <div style={{ marginTop: '8px' }}>
+                            <input ref={excelInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleValidatorExcelUpload} />
+                            <button onClick={() => excelInputRef.current?.click()} style={{ padding: '6px 12px', background: 'rgba(46,204,113,0.15)', border: '1px solid #2ecc71', color: '#2ecc71', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em', fontWeight: 'bold' }}>
+                                📎 Subir Excel
+                            </button>
+                        </div>
+                        {validatorExcelEmails.length > 0 && (
+                            <div style={{ marginTop: '10px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '10px', border: '1px solid rgba(46,204,113,0.3)' }}>
+                                <div style={{ fontSize: '0.75em', color: '#2ecc71', marginBottom: '6px', fontWeight: 'bold' }}>
+                                    {validatorExcelEmails.length} correos encontrados en el archivo:
+                                </div>
+                                <div style={{ maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+                                    {validatorExcelEmails.map(email => (
+                                        <div key={email} style={{ fontSize: '0.75em', color: '#ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span>{email}</span>
+                                            <button onClick={() => setValidatorExcelEmails(prev => prev.filter(e => e !== email))} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '0.85em', padding: '0 4px' }}>✕</button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={handleValidatorBulkAdd} disabled={validatorExcelLoading} style={{ flex: 1, padding: '7px', background: '#2ecc71', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8em' }}>
+                                        {validatorExcelLoading ? 'Agregando...' : `Agregar todos (${validatorExcelEmails.length})`}
+                                    </button>
+                                    <button onClick={() => setValidatorExcelEmails([])} style={{ padding: '7px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid #555', color: '#aaa', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8em' }}>
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Sección validadores */}
